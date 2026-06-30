@@ -27,6 +27,35 @@ function parseLogins(raw) {
   return list.filter((u) => u.email && u.password);
 }
 
+// Known materials (matched against product tags) for the Material filter.
+export const MATERIALS = [
+  'Acrylic',
+  'Melamine',
+  'Porcelain',
+  'Polyresin',
+  'Polycarbonate',
+  'Bamboo',
+  'Crystal',
+  'Glass',
+  'Cotton',
+  'Stainless Steel',
+];
+
+// Curated "design line" collections shown at the top of the rep browse, in this order.
+export const MAIN_COLLECTIONS = [
+  { handle: 'mamma-mia', title: 'Mamma Mia' },
+  { handle: 'sagrada-familia', title: 'Sagrada Familia' },
+  { handle: 'aqua', title: 'Aqua' },
+  { handle: 'zodiac-vibe', title: 'Zodiac Cups' },
+  { handle: 'dolce-far-niente', title: 'Dolce Far Niente' },
+  { handle: 'portofino', title: 'Portofino' },
+  { handle: 'crystal-touch', title: 'Crystal Touch' },
+  { handle: 'firenze', title: 'Firenze' },
+  { handle: 'teste-matte', title: 'Teste Matte' },
+  { handle: 'baroque-rock', title: 'Baroque & Rock' },
+  { handle: 'joke', title: 'Joke' },
+];
+
 export const cfg = {
   port: Number(process.env.PORT || 8080),
   appUrl: process.env.APP_URL || 'http://localhost:5173',
@@ -52,6 +81,7 @@ export const cfg = {
     .filter(Boolean),
   lowStockThreshold: Number(process.env.LOW_STOCK_THRESHOLD || 10),
   defaultDiscountPct: Number(process.env.DEFAULT_WHOLESALE_PCT || 35),
+  mainCollections: MAIN_COLLECTIONS,
 
   // Collections hidden from the rep browse (system/SEO/mega collections, not real nav).
   excludedCollectionHandles: (

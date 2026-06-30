@@ -2,7 +2,7 @@
 // The PWA downloads this once, caches it on-device, then receives live deltas via SSE.
 import fs from 'node:fs';
 import { shopifyGraphQL } from './shopify.js';
-import { cfg } from './config.js';
+import { cfg, MATERIALS } from './config.js';
 import { availableToSell } from './domain.js';
 
 export const cache = {
@@ -48,6 +48,16 @@ function deriveDesign(title) {
   return parts.length > 1 ? parts[parts.length - 1].trim() : null;
 }
 
+// Material(s) inferred from product tags (e.g. "Acrylic", "Porcelain").
+function deriveMaterials(tags) {
+  const found = new Set();
+  for (const t of tags || []) {
+    const tl = String(t).toLowerCase();
+    for (const m of MATERIALS) if (tl.includes(m.toLowerCase())) found.add(m);
+  }
+  return [...found];
+}
+
 async function loadConfig() {
   const data = await shopifyGraphQL(`query {
     shop {
@@ -79,6 +89,7 @@ query Snapshot($cursor: String) {
       handle
       productType
       featuredImage { url }
+      tags
       collections(first: 20) { nodes { handle title } }
       substitutes: metafield(namespace: "b2b", key: "substitutes") { value }
       variants(first: 100) {
@@ -149,6 +160,7 @@ export async function buildSnapshot() {
         handle: p.handle,
         productType: p.productType || null,
         design: deriveDesign(p.title),
+        materials: deriveMaterials(p.tags),
         collections: (p.collections?.nodes || [])
           .filter((c) => !cfg.excludedCollectionHandles.includes(c.handle))
           .map((c) => ({ handle: c.handle, title: c.title })),
@@ -177,7 +189,7 @@ export function snapshotResponse() {
     version: cache.version,
     builtAt: cache.builtAt,
     showcase: cache.showcase,
-    config: cache.config,
+    config: { ...cache.config, mainCollections: cfg.mainCollections },
     products: cache.products,
   };
 }

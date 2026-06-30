@@ -3,6 +3,7 @@ import * as sync from './sync.js';
 import { api } from './api.js';
 import { ProductCard } from './components/ProductCard.jsx';
 import { BrowseView } from './components/BrowseView.jsx';
+import { productRank } from './domain.js';
 
 function useSync() {
   return useSyncExternalStore(sync.subscribe, sync.getState);
@@ -98,16 +99,19 @@ function Shell() {
   const results = useMemo(() => {
     const products = s.snapshot?.products || [];
     const q = query.trim().toLowerCase();
-    if (!q) return products.slice(0, 40);
+    if (!q) return [];
+    const lowT = s.config?.lowThreshold ?? 10;
     return products
       .filter(
         (p) =>
           p.title.toLowerCase().includes(q) ||
           (p.productType || '').toLowerCase().includes(q) ||
+          (p.materials || []).some((m) => m.toLowerCase().includes(q)) ||
           p.variants.some((v) => (v.sku || '').toLowerCase().includes(q))
       )
+      .sort((a, b) => productRank(a, s.availability, lowT) - productRank(b, s.availability, lowT))
       .slice(0, 60);
-  }, [query, s.snapshot]);
+  }, [query, s.snapshot, s.availability, s.config]);
 
   if (!s.snapshot) return <div className="center muted">Syncing catalog…</div>;
 

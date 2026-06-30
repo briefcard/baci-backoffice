@@ -1,6 +1,5 @@
 import React from 'react';
-import { StockBadge } from './StockBadge.jsx';
-import { unitWholesalePrice, stockState, money } from '../domain.js';
+import { unitWholesalePrice, stockState, stateRank, money } from '../domain.js';
 
 function fmtEta(d) {
   if (!d) return null;
@@ -16,25 +15,25 @@ export function ProductCard({ product, availability, config, productIndex }) {
   const pct = config?.discountPct ?? 35;
   const currency = config?.currency || 'USD';
 
+  // Out-of-stock variants sink to the bottom of the card.
+  const variants = [...product.variants].sort(
+    (a, b) =>
+      stateRank(availability[a.id] ?? a.available ?? 0, lowT) -
+      stateRank(availability[b.id] ?? b.available ?? 0, lowT)
+  );
+
   let anyOut = false;
-  const rows = product.variants.map((v) => {
+  const rows = variants.map((v) => {
     const avail = availability[v.id] ?? v.available ?? 0;
     const state = stockState(avail, lowT);
     if (state === 'out') anyOut = true;
     const price = unitWholesalePrice(v, pct);
     const eta = fmtEta(v.restockEta);
     return (
-      <div className="vrow" key={v.id}>
+      <div className={`vrow ${state === 'out' ? 'isout' : ''}`} key={v.id}>
         <div className="vmain">
           <div className="vtitle">{v.title && v.title !== 'Default Title' ? v.title : product.title}</div>
           <div className="vsku">{v.sku || '—'}</div>
-        </div>
-        <div className="vprice">
-          <div className="b2b">{money(price, currency)}</div>
-          <div className="msrp">MSRP {money(v.retailPrice, currency)}</div>
-        </div>
-        <div className="vstock">
-          <StockBadge state={state} available={avail} />
           {state !== 'in' && (
             <div className="oos">
               {eta ? <span className="eta">Back ~{eta}</span> : null}
@@ -42,25 +41,39 @@ export function ProductCard({ product, availability, config, productIndex }) {
             </div>
           )}
         </div>
+        <div className="vprice">
+          <span className="b2b">{money(price, currency)}</span>
+          <span className="msrp">{money(v.retailPrice, currency)}</span>
+        </div>
+        <div className={`stocknum ${state}`}>
+          <span className="num">{Math.max(avail, 0)}</span>
+          <span className="lbl">{state === 'out' ? 'out' : 'in stock'}</span>
+        </div>
       </div>
     );
   });
 
   const subs =
     anyOut && product.substitutes?.length
-      ? product.substitutes
-          .map((id) => productIndex.get(id))
-          .filter(Boolean)
-          .slice(0, 4)
+      ? product.substitutes.map((id) => productIndex.get(id)).filter(Boolean).slice(0, 4)
       : [];
 
   return (
     <div className="card">
       <div className="chead">
-        {product.image ? <img src={product.image} alt="" className="cimg" loading="lazy" /> : <div className="cimg ph" />}
-        <div>
+        {product.image ? (
+          <img src={product.image} alt="" className="cimg" loading="lazy" />
+        ) : (
+          <div className="cimg ph" />
+        )}
+        <div className="cmeta">
           <div className="ctitle">{product.title}</div>
-          {product.productType ? <div className="ctype">{product.productType}</div> : null}
+          <div className="ctags">
+            {product.productType ? <span>{product.productType}</span> : null}
+            {(product.materials || []).slice(0, 2).map((m) => (
+              <span key={m}>{m}</span>
+            ))}
+          </div>
         </div>
       </div>
       <div className="vrows">{rows}</div>

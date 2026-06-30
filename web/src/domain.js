@@ -15,6 +15,23 @@ export function stockState(available, lowThreshold = 10) {
   return 'in';
 }
 
+// Sort rank — in stock (0) first, low (1), out of stock (2) last.
+export function stateRank(available, lowThreshold = 10) {
+  if (available <= 0) return 2;
+  if (available < lowThreshold) return 1;
+  return 0;
+}
+
+// Best (lowest) stock rank across a product's variants — for ordering product lists.
+export function productRank(product, availabilityMap, lowThreshold = 10) {
+  let best = 2;
+  for (const v of product.variants || []) {
+    const a = availabilityMap[v.id] ?? v.available ?? 0;
+    best = Math.min(best, stateRank(a, lowThreshold));
+  }
+  return best;
+}
+
 export function money(n, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(n) || 0);
 }
