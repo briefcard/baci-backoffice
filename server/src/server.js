@@ -38,6 +38,18 @@ app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, 
   }
 });
 
+// App entry point: Shopify loads the App URL as "/?shop=...&hmac=..." right after install.
+// If we don't have a token for that shop yet, kick off OAuth instead of serving the PWA.
+app.addHook('onRequest', async (req, reply) => {
+  if (req.method !== 'GET') return;
+  const url = req.raw.url || '';
+  if (!url.startsWith('/?')) return;
+  const shop = new URLSearchParams(url.slice(2)).get('shop');
+  if (shop && SHOP_RE.test(shop) && !(await getToken(shop).catch(() => null))) {
+    return reply.redirect(`/auth/shopify/install?shop=${encodeURIComponent(shop)}`);
+  }
+});
+
 function requireAuth(req, reply, done) {
   if (cfg.authDisabled) {
     req.rep = { id: 0, email: 'dev@local', name: 'Dev Rep' };
