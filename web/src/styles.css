@@ -33,6 +33,8 @@ body {
   padding: 12px 14px; border: 0; border-radius: 10px; font-size: 16px;
   background: var(--ink); color: #fff; font-weight: 600;
 }
+.login button:disabled { opacity: 0.6; }
+.login .err { color: var(--out); font-size: 13px; margin: 2px 0 0; }
 
 /* App shell */
 .app { max-width: 720px; margin: 0 auto; }

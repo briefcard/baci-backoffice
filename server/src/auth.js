@@ -18,6 +18,17 @@ export function verifySession(token) {
   }
 }
 
+// Interim email+password login against cfg.repLogins (from the REP_LOGINS env var).
+export function passwordLogin(email, password) {
+  const e = String(email || '').toLowerCase().trim();
+  const rep = cfg.repLogins.find((u) => u.email === e);
+  if (!rep) return null;
+  const a = Buffer.from(rep.password);
+  const b = Buffer.from(String(password || ''));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  return { id: `env:${e}`, email: e, name: rep.name };
+}
+
 export async function requestMagicLink(email) {
   // Always return ok (don't reveal whether an email is a registered rep).
   const { rows } = await q(

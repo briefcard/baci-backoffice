@@ -6,6 +6,27 @@ function bool(v, d = false) {
   return ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase());
 }
 
+// Interim password auth (before Resend magic links). REP_LOGINS accepts either:
+//   [{"email":"a@x.com","name":"A","password":"pw"}, ...]   or   {"a@x.com":"pw", ...}
+function parseLogins(raw) {
+  if (!raw) return [];
+  let v;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const norm = (email, name, password) => ({
+    email: String(email || '').toLowerCase().trim(),
+    name: name || email,
+    password: String(password ?? ''),
+  });
+  const list = Array.isArray(v)
+    ? v.map((u) => norm(u.email, u.name, u.password))
+    : Object.entries(v).map(([email, password]) => norm(email, email, password));
+  return list.filter((u) => u.email && u.password);
+}
+
 export const cfg = {
   port: Number(process.env.PORT || 8080),
   appUrl: process.env.APP_URL || 'http://localhost:5173',
@@ -43,6 +64,7 @@ export const cfg = {
 
   // Auth / infra (needed for M2; optional in M1 if AUTH_DISABLED=true)
   authDisabled: bool(process.env.AUTH_DISABLED, false),
+  repLogins: parseLogins(process.env.REP_LOGINS), // interim email+password auth
   jwtSecret: process.env.JWT_SECRET || 'dev-insecure-secret-change-me',
   databaseUrl: process.env.DATABASE_URL || '',
   resendApiKey: process.env.RESEND_API_KEY || '',

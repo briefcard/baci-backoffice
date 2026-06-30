@@ -18,6 +18,7 @@ export const api = {
   me: () => jget('/api/me'),
   snapshot: () => jget('/api/snapshot'),
   inventory: () => jget('/api/inventory'),
+  login: (email, password) => jpost('/api/auth/login', { email, password }),
   requestLink: (email) => jpost('/api/auth/request', { email }),
   logout: () => jpost('/api/auth/logout'),
 };

@@ -21,36 +21,52 @@ export default function App() {
   }, []);
 
   if (auth === 'checking') return <div className="center muted">Loading…</div>;
-  if (auth === 'out') return <Login />;
+  if (auth === 'out')
+    return <Login onLoggedIn={() => { setAuth('in'); sync.init(); }} />;
   return <Shell />;
 }
 
-function Login() {
+function Login({ onLoggedIn }) {
   const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
-    await api.requestLink(email).catch(() => {});
-    setSent(true);
+    setErr('');
+    setBusy(true);
+    try {
+      await api.login(email, password);
+      onLoggedIn();
+    } catch {
+      setErr('Invalid email or password');
+      setBusy(false);
+    }
   };
   return (
     <div className="center">
       <div className="login">
         <h1>Baci Reps</h1>
-        {sent ? (
-          <p className="muted">If that email is registered, a sign-in link is on its way. Check your inbox.</p>
-        ) : (
-          <form onSubmit={submit}>
-            <input
-              type="email"
-              required
-              placeholder="you@bacimilanousa.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <button type="submit">Send sign-in link</button>
-          </form>
-        )}
+        <form onSubmit={submit}>
+          <input
+            type="email"
+            required
+            placeholder="you@bacimilanousa.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            type="password"
+            required
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button type="submit" disabled={busy}>
+            {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+          {err && <p className="err">{err}</p>}
+        </form>
       </div>
     </div>
   );

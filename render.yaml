@@ -28,6 +28,8 @@ services:
         value: read_products,read_inventory,read_locations,read_draft_orders,write_draft_orders
       - key: AUTH_DISABLED
         value: "false"
+      - key: REP_LOGINS # interim email+password auth, e.g. [{"email":"a@x.com","name":"A","password":"pw"}]
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: RESEND_API_KEY

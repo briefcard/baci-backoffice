@@ -16,6 +16,7 @@ import {
   verifySession,
   requestMagicLink,
   consumeMagicLink,
+  passwordLogin,
 } from './auth.js';
 import crypto from 'node:crypto';
 import { pool, runMigrations } from './db.js';
@@ -84,6 +85,21 @@ app.get('/auth/callback', async (req, reply) => {
     maxAge: 60 * 60 * 24 * 30,
   });
   return reply.redirect(cfg.appUrl);
+});
+
+// Interim email + password login (no email service needed). Reads REP_LOGINS env JSON.
+app.post('/api/auth/login', async (req, reply) => {
+  const { email, password } = req.body || {};
+  const rep = passwordLogin(email, password);
+  if (!rep) return reply.code(401).send({ error: 'invalid credentials' });
+  reply.setCookie('session', signSession(rep), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: !cfg.appUrl.startsWith('http://'),
+    path: '/',
+    maxAge: 60 * 60 * 24 * 30,
+  });
+  return { ok: true, rep: { email: rep.email, name: rep.name } };
 });
 
 app.post('/api/auth/logout', async (req, reply) => {
