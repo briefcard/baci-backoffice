@@ -126,12 +126,13 @@ app.post('/api/auth/logout', async (req, reply) => {
 });
 
 // ---- Shopify OAuth install (Client ID + Secret → access token) ----
-app.get('/auth/shopify/install', (req, reply) => {
+app.get('/auth/shopify/install', async (req, reply) => {
   const shop = String(req.query?.shop || cfg.shopifyStore || '').toLowerCase();
   if (!SHOP_RE.test(shop)) return reply.code(400).send('Add ?shop=your-store.myshopify.com');
   if (!cfg.apiKey || !cfg.apiSecret) {
     return reply.code(500).send('SHOPIFY_API_KEY / SHOPIFY_API_SECRET not configured');
   }
+  if (await getToken(shop).catch(() => null)) return reply.redirect(cfg.appUrl); // already installed
   const state = crypto.randomBytes(16).toString('hex');
   reply.setCookie('oauth_state', state, {
     httpOnly: true,

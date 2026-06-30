@@ -21,6 +21,10 @@ export default defineConfig({
       },
       workbox: {
         // App shell is precached; product images cached at runtime. Catalog data lives in IndexedDB.
+        navigateFallback: 'index.html',
+        // CRITICAL: the SW must NOT serve the cached app shell for these — let them reach the
+        // server, or the OAuth install/callback flow is intercepted and never authenticates.
+        navigateFallbackDenylist: [/^\/auth/, /^\/api/, /^\/webhooks/],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.origin.includes('cdn.shopify.com'),
