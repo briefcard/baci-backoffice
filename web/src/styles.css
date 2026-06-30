@@ -44,6 +44,9 @@ header {
 }
 .hrow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 
+.badges { display: inline-flex; gap: 8px; align-items: center; }
+.showcase-pill { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: #ecebff; color: #4b3fb0; }
+
 .fresh { font-size: 12px; padding: 3px 8px; border-radius: 999px; font-weight: 600; }
 .fresh.live { background: #e6f4ea; color: var(--in); }
 .fresh.live::before { content: '● '; }

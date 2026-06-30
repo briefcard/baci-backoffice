@@ -8,6 +8,7 @@ import { availableToSell } from './domain.js';
 export const cache = {
   version: 0,
   builtAt: null,
+  showcase: false,
   config: {
     discountPct: cfg.defaultDiscountPct,
     tiers: [],
@@ -164,6 +165,7 @@ export async function buildSnapshot() {
   cache.invItemToVariant = invItemToVariant;
   cache.version = Date.now();
   cache.builtAt = new Date().toISOString();
+  cache.showcase = false;
   console.log(
     `[snapshot] built v${cache.version}: ${products.length} products, ${availability.size} variants`
   );
@@ -174,6 +176,7 @@ export function snapshotResponse() {
   return {
     version: cache.version,
     builtAt: cache.builtAt,
+    showcase: cache.showcase,
     config: cache.config,
     products: cache.products,
   };
@@ -196,5 +199,6 @@ export function loadSeed() {
   cache.availability = availability;
   cache.version = Date.now();
   cache.builtAt = seed.builtAt || new Date().toISOString();
+  cache.showcase = true;
   return true;
 }

@@ -116,7 +116,12 @@ function Shell() {
       <header>
         <div className="hrow">
           <strong>Baci Reps</strong>
-          <FreshnessBadge status={s.status} syncedAt={s.syncedAt} />
+          <span className="badges">
+            {s.snapshot.showcase && (
+              <span className="showcase-pill">Showcase · {s.snapshot.products.length}</span>
+            )}
+            <FreshnessBadge status={s.status} syncedAt={s.syncedAt} />
+          </span>
         </div>
         <input
           className="search"
