@@ -38,6 +38,22 @@ Magic-link auth + draft-order capture (M2) need Postgres + Resend (see `server/.
 - Wholesale: retail − **35%** (per-variant `b2b.wholesale_price` overrides) — read live from shop metafields
 - Volume ladder: read live from shop metafield `b2b.volume_discount_tiers`
 
+## Deploy (Render + Shopify OAuth)
+
+This app authenticates to Shopify via **OAuth** using your app's **Client ID + Client Secret** —
+no manual Admin API token needed. Install once and a permanent offline token is stored in Postgres.
+
+1. Push this repo to GitHub and connect it in **Render → New → Blueprint** (`render.yaml` provisions
+   one web service + Postgres).
+2. Set env vars on the service: `SHOPIFY_API_KEY` (Client ID), `SHOPIFY_API_SECRET` (Client Secret),
+   `APP_URL` (the service's `https://…onrender.com` URL), `RESEND_API_KEY`. `SHOPIFY_STORE`,
+   `SHOPIFY_SCOPES`, `JWT_SECRET`, and `DATABASE_URL` come from the blueprint.
+3. In your Shopify app config, set:
+   - **App URL:** `{APP_URL}`
+   - **Allowed redirection URL:** `{APP_URL}/auth/shopify/callback`
+4. After it deploys, open **`{APP_URL}/auth/shopify/install`** once, approve, and all products sync.
+   (A static `SHOPIFY_ADMIN_TOKEN` is also supported and takes precedence if you ever set one.)
+
 ## Milestones
 
 - **M1** — lookup + offline cache + live-sync engine  ← _this scaffold_

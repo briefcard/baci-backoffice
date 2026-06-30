@@ -17,6 +17,10 @@ import {
   requestMagicLink,
   consumeMagicLink,
 } from './auth.js';
+import crypto from 'node:crypto';
+import { pool, runMigrations } from './db.js';
+import { getToken, saveToken } from './tokens.js';
+import { buildInstallUrl, verifyOAuthHmac, exchangeToken, SHOP_RE } from './oauth.js';
 
 const app = Fastify({ logger: true });
 
@@ -87,6 +91,42 @@ app.post('/api/auth/logout', async (req, reply) => {
   return { ok: true };
 });
 
+// ---- Shopify OAuth install (Client ID + Secret → access token) ----
+app.get('/auth/shopify/install', (req, reply) => {
+  const shop = String(req.query?.shop || cfg.shopifyStore || '').toLowerCase();
+  if (!SHOP_RE.test(shop)) return reply.code(400).send('Add ?shop=your-store.myshopify.com');
+  if (!cfg.apiKey || !cfg.apiSecret) {
+    return reply.code(500).send('SHOPIFY_API_KEY / SHOPIFY_API_SECRET not configured');
+  }
+  const state = crypto.randomBytes(16).toString('hex');
+  reply.setCookie('oauth_state', state, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: !cfg.appUrl.startsWith('http://'),
+    path: '/',
+    maxAge: 600,
+  });
+  return reply.redirect(buildInstallUrl(shop, state));
+});
+
+app.get('/auth/shopify/callback', async (req, reply) => {
+  const { shop, code, state } = req.query || {};
+  if (!shop || !code) return reply.code(400).send('Missing shop or code');
+  if (!SHOP_RE.test(String(shop))) return reply.code(400).send('Invalid shop');
+  if (!state || state !== req.cookies?.oauth_state) return reply.code(403).send('OAuth state mismatch');
+  if (!verifyOAuthHmac(req.query)) return reply.code(401).send('HMAC verification failed');
+  try {
+    const { access_token, scope } = await exchangeToken(String(shop), String(code));
+    await saveToken(String(shop), access_token, scope);
+    reply.clearCookie('oauth_state', { path: '/' });
+    ensureLiveSync().catch((err) => req.log.error(err));
+    return reply.redirect(cfg.appUrl);
+  } catch (err) {
+    req.log.error(err);
+    return reply.code(500).send(`Install failed: ${err.message}`);
+  }
+});
+
 // ---- Catalog + live inventory ----
 app.get('/api/snapshot', { preHandler: requireAuth }, async () => snapshotResponse());
 
@@ -131,6 +171,23 @@ app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) =>
   reply.code(501).send({ error: 'draft-order capture lands in M2' })
 );
 
+// Build the snapshot + start the periodic rebuild once a token is available
+// (on boot if already installed, or right after the OAuth callback).
+let liveSyncStarted = false;
+async function ensureLiveSync() {
+  const token = await getToken(cfg.shopifyStore);
+  if (!cfg.shopifyStore || !token) return false;
+  await buildSnapshot().catch((err) => app.log.error({ err }, 'snapshot failed'));
+  if (!liveSyncStarted) {
+    liveSyncStarted = true;
+    setInterval(
+      () => buildSnapshot().catch((err) => app.log.error({ err }, 'snapshot rebuild failed')),
+      10 * 60 * 1000
+    );
+  }
+  return true;
+}
+
 // ---- Boot ----
 async function start() {
   // In production, the same service serves the built PWA → one URL, mobile-reachable, same-origin.
@@ -147,17 +204,21 @@ async function start() {
     app.log.info('Serving built PWA from web/dist');
   }
 
-  if (cfg.shopifyStore && cfg.shopifyToken) {
-    await buildSnapshot().catch((err) => app.log.error({ err }, 'initial snapshot failed — will retry'));
-    // Periodic rebuild catches product/price/metafield edits (inventory comes via webhook).
-    setInterval(
-      () => buildSnapshot().catch((err) => app.log.error({ err }, 'snapshot rebuild failed')),
-      10 * 60 * 1000
-    );
+  if (pool) {
+    await runMigrations()
+      .then(() => app.log.info('db schema ensured'))
+      .catch((err) => app.log.error({ err }, 'migration failed'));
+  }
+
+  if (await ensureLiveSync()) {
+    app.log.info('Live Shopify sync active.');
+  } else if (cfg.shopifyStore && cfg.apiKey && cfg.apiSecret) {
+    app.log.warn(`App not installed yet — open ${cfg.appUrl}/auth/shopify/install to authorize and start syncing.`);
+    if (loadSeed()) app.log.info('Serving seed showcase data until installed.');
   } else if (loadSeed()) {
-    app.log.info('No Shopify token — serving seed showcase data (server/seed-snapshot.json).');
+    app.log.info('No Shopify credentials — serving seed showcase data.');
   } else {
-    app.log.warn('SHOPIFY_STORE / SHOPIFY_ADMIN_TOKEN not set — serving empty catalog until configured.');
+    app.log.warn('Shopify not configured — serving empty catalog.');
   }
 
   await app.listen({ port: cfg.port, host: '0.0.0.0' });

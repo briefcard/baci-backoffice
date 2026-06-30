@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Offline Admin API access token obtained via OAuth install.
+CREATE TABLE IF NOT EXISTS shop_tokens (
+  shop TEXT PRIMARY KEY,
+  access_token TEXT NOT NULL,
+  scope TEXT,
+  installed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Seed your ~10 reps (edit, then re-run `npm run migrate` or run manually):
 -- INSERT INTO reps (email, name) VALUES
 --   ('jane@bacimilanousa.com', 'Jane Doe'),

@@ -16,9 +16,12 @@ export const cfg = {
   apiVersion: process.env.SHOPIFY_API_VERSION || '2025-01',
   // Webhook HMAC secret. For app-registered webhooks this is the app's API secret key (Client Secret).
   webhookSecret: process.env.SHOPIFY_WEBHOOK_SECRET || process.env.SHOPIFY_API_SECRET || '',
-  // OAuth credentials (Client ID / Secret) — stored for webhook verification / future install flow.
+  // OAuth credentials (Client ID / Secret). Used to install the app and obtain an access token.
   apiKey: process.env.SHOPIFY_API_KEY || '',
   apiSecret: process.env.SHOPIFY_API_SECRET || '',
+  scopes:
+    process.env.SHOPIFY_SCOPES ||
+    'read_products,read_inventory,read_locations,read_draft_orders,write_draft_orders',
 
   // Confirmed business settings (overridable via env)
   sellableLocationIds: (process.env.SELLABLE_LOCATION_IDS ||

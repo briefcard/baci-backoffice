@@ -1,13 +1,18 @@
-// Thin Shopify Admin GraphQL client. The Admin token lives ONLY here, server-side.
+// Thin Shopify Admin GraphQL client. The access token lives ONLY server-side.
 import { cfg } from './config.js';
+import { getToken } from './tokens.js';
 
 export async function shopifyGraphQL(query, variables = {}) {
+  const token = await getToken();
+  if (!token) {
+    throw new Error('No Shopify access token — app not installed. Visit /auth/shopify/install.');
+  }
   const url = `https://${cfg.shopifyStore}/admin/api/${cfg.apiVersion}/graphql.json`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': cfg.shopifyToken,
+      'X-Shopify-Access-Token': token,
     },
     body: JSON.stringify({ query, variables }),
   });
