@@ -81,8 +81,8 @@ async function loadConfig() {
 }
 
 const PRODUCTS_QUERY = `
-query Snapshot($cursor: String) {
-  products(first: 50, after: $cursor) {
+query Snapshot($cursor: String, $loc: ID!) {
+  products(first: 30, after: $cursor) {
     nodes {
       id
       title
@@ -90,9 +90,9 @@ query Snapshot($cursor: String) {
       productType
       featuredImage { url }
       tags
-      collections(first: 20) { nodes { handle title } }
+      collections(first: 12) { nodes { handle title } }
       substitutes: metafield(namespace: "b2b", key: "substitutes") { value }
-      variants(first: 100) {
+      variants(first: 40) {
         nodes {
           id
           sku
@@ -105,11 +105,8 @@ query Snapshot($cursor: String) {
           eta: metafield(namespace: "b2b", key: "restock_eta") { value }
           inventoryItem {
             id
-            inventoryLevels(first: 10) {
-              nodes {
-                location { id }
-                quantities(names: ["available"]) { name quantity }
-              }
+            inventoryLevel(locationId: $loc) {
+              quantities(names: ["available"]) { name quantity }
             }
           }
         }
@@ -127,18 +124,15 @@ export async function buildSnapshot() {
   let cursor = null;
 
   do {
-    const data = await shopifyGraphQL(PRODUCTS_QUERY, { cursor });
+    const data = await shopifyGraphQL(PRODUCTS_QUERY, { cursor, loc: cfg.sellableLocationIds[0] });
     const conn = data.products;
     for (const p of conn.nodes) {
       // Exclude products with "B2B" in the title or any tag (internal/B2B-only SKUs).
       if (/b2b/i.test(p.title || '') || (p.tags || []).some((t) => /b2b/i.test(t))) continue;
       const variants = p.variants.nodes.map((v) => {
-        const levels = v.inventoryItem?.inventoryLevels?.nodes || [];
-        const inv = levels.map((l) => ({
-          locationId: l.location.id,
-          available: l.quantities?.find((q) => q.name === 'available')?.quantity ?? 0,
-        }));
-        const available = availableToSell(inv, cfg.sellableLocationIds);
+        // We fetch only the sellable (Miami) location's level, so that IS available-to-sell.
+        const lvl = v.inventoryItem?.inventoryLevel;
+        const available = lvl?.quantities?.find((q) => q.name === 'available')?.quantity ?? 0;
         availability.set(v.id, available);
         if (v.inventoryItem?.id) {
           invItemToVariant.set(String(v.inventoryItem.id).split('/').pop(), v.id);
