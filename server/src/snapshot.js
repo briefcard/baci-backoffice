@@ -49,11 +49,16 @@ function deriveDesign(title) {
 }
 
 // Material(s) inferred from product tags (e.g. "Acrylic", "Porcelain").
-function deriveMaterials(tags) {
+function deriveMaterials(tags, design) {
   const found = new Set();
   for (const t of tags || []) {
     const tl = String(t).toLowerCase();
     for (const m of MATERIALS) if (tl.includes(m.toLowerCase())) found.add(m);
+    if (/\bcpc\b/.test(tl)) found.add('Polycarbonate'); // CPC = polycarbonate
+  }
+  // Crystal Touch is polycarbonate (CPC), not glass/crystal.
+  if (/crystal touch/i.test(design || '') || (tags || []).some((t) => /crystal touch/i.test(t))) {
+    found.add('Polycarbonate');
   }
   return [...found];
 }
@@ -156,7 +161,7 @@ export async function buildSnapshot() {
         handle: p.handle,
         productType: p.productType || null,
         design: deriveDesign(p.title),
-        materials: deriveMaterials(p.tags),
+        materials: deriveMaterials(p.tags, deriveDesign(p.title)),
         collections: (p.collections?.nodes || [])
           .filter((c) => !cfg.excludedCollectionHandles.includes(c.handle))
           .map((c) => ({ handle: c.handle, title: c.title })),

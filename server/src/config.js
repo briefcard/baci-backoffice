@@ -28,6 +28,7 @@ function parseLogins(raw) {
 }
 
 // Known materials (matched against product tags) for the Material filter.
+// We don't carry glass. Cups are Acrylic or Porcelain; Crystal Touch is CPC (Polycarbonate).
 export const MATERIALS = [
   'Acrylic',
   'Melamine',
@@ -35,8 +36,6 @@ export const MATERIALS = [
   'Polyresin',
   'Polycarbonate',
   'Bamboo',
-  'Crystal',
-  'Glass',
   'Cotton',
   'Stainless Steel',
 ];
