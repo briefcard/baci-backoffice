@@ -63,7 +63,7 @@ export const cfg = {
   // Shopify
   shopifyStore: process.env.SHOPIFY_STORE || '', // e.g. baci-milano.myshopify.com
   shopifyToken: process.env.SHOPIFY_ADMIN_TOKEN || '',
-  apiVersion: process.env.SHOPIFY_API_VERSION || '2025-01',
+  apiVersion: process.env.SHOPIFY_API_VERSION || '2026-04',
   // Webhook HMAC secret. For app-registered webhooks this is the app's API secret key (Client Secret).
   webhookSecret: process.env.SHOPIFY_WEBHOOK_SECRET || process.env.SHOPIFY_API_SECRET || '',
   // OAuth credentials (Client ID / Secret). Used to install the app and obtain an access token.

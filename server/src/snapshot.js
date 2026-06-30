@@ -130,6 +130,8 @@ export async function buildSnapshot() {
     const data = await shopifyGraphQL(PRODUCTS_QUERY, { cursor });
     const conn = data.products;
     for (const p of conn.nodes) {
+      // Exclude products with "B2B" in the title or any tag (internal/B2B-only SKUs).
+      if (/b2b/i.test(p.title || '') || (p.tags || []).some((t) => /b2b/i.test(t))) continue;
       const variants = p.variants.nodes.map((v) => {
         const levels = v.inventoryItem?.inventoryLevels?.nodes || [];
         const inv = levels.map((l) => ({
@@ -204,7 +206,7 @@ export function loadSeed() {
   const url = new URL('../seed-snapshot.json', import.meta.url);
   if (!fs.existsSync(url)) return false;
   const seed = JSON.parse(fs.readFileSync(url, 'utf8'));
-  cache.products = seed.products || [];
+  cache.products = (seed.products || []).filter((p) => !/b2b/i.test(p.title || ''));
   if (seed.config) cache.config = seed.config;
   const availability = new Map();
   for (const p of cache.products) for (const v of p.variants) availability.set(v.id, v.available ?? 0);

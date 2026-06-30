@@ -53,9 +53,15 @@ function requireAuth(req, reply, done) {
 }
 
 // ---- Health & identity ----
+let lastSyncError = null;
+
 app.get('/api/health', async () => ({
   ok: true,
   snapshotVersion: cache.version,
+  products: cache.products.length,
+  installed: !!(await getToken(cfg.shopifyStore).catch(() => null)),
+  apiVersion: cfg.apiVersion,
+  lastError: lastSyncError,
   streamClients: clientCount(),
 }));
 
@@ -193,13 +199,23 @@ let liveSyncStarted = false;
 async function ensureLiveSync() {
   const token = await getToken(cfg.shopifyStore);
   if (!cfg.shopifyStore || !token) return false;
-  await buildSnapshot().catch((err) => app.log.error({ err }, 'snapshot failed'));
+  try {
+    await buildSnapshot();
+    lastSyncError = null;
+  } catch (err) {
+    lastSyncError = String(err?.message || err).slice(0, 500);
+    app.log.error({ err }, 'snapshot failed');
+  }
   if (!liveSyncStarted) {
     liveSyncStarted = true;
-    setInterval(
-      () => buildSnapshot().catch((err) => app.log.error({ err }, 'snapshot rebuild failed')),
-      10 * 60 * 1000
-    );
+    setInterval(() => {
+      buildSnapshot()
+        .then(() => { lastSyncError = null; })
+        .catch((err) => {
+          lastSyncError = String(err?.message || err).slice(0, 500);
+          app.log.error({ err }, 'snapshot rebuild failed');
+        });
+    }, 10 * 60 * 1000);
   }
   return true;
 }
