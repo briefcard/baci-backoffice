@@ -2,10 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { ProductCard } from './ProductCard.jsx';
 import { productRank } from '../domain.js';
 
-// Top level = curated main collections (config.mainCollections, in order).
-// Inside a collection: filter by Product Type and/or Material. Out-of-stock sorts to the bottom.
+// Faceted browse: products are always visible. Filter rows at the top —
+// Collection (curated main lines) → Product Type → Material. Out-of-stock sorts to the bottom.
 export function BrowseView({ products, availability, config, productIndex }) {
-  const [collection, setCollection] = useState(null); // { handle, title }
+  const [collection, setCollection] = useState(null); // collection handle
   const [type, setType] = useState(null);
   const [material, setMaterial] = useState(null);
 
@@ -18,65 +18,60 @@ export function BrowseView({ products, availability, config, productIndex }) {
     return m;
   }, [products]);
 
-  const inCollection = useMemo(
-    () => (collection ? products.filter((p) => p.collections?.some((c) => c.handle === collection.handle)) : []),
+  // Products after the collection filter — the basis for the type/material facets.
+  const base = useMemo(
+    () => (collection ? products.filter((p) => p.collections?.some((c) => c.handle === collection)) : products),
     [products, collection]
   );
 
-  const typeFacet = useMemo(() => facetCounts(inCollection, (p) => [p.productType || 'Other']), [inCollection]);
-  const matFacet = useMemo(() => facetCounts(inCollection, (p) => p.materials || []), [inCollection]);
+  const typeFacet = useMemo(() => facetCounts(base, (p) => [p.productType || 'Other']), [base]);
+  const matFacet = useMemo(() => facetCounts(base, (p) => p.materials || []), [base]);
 
   const filtered = useMemo(() => {
-    let list = inCollection;
+    let list = base;
     if (type) list = list.filter((p) => p.productType === type);
     if (material) list = list.filter((p) => (p.materials || []).includes(material));
-    return [...list].sort((a, b) => productRank(a, availability, lowT) - productRank(b, availability, lowT));
-  }, [inCollection, type, material, availability, lowT]);
+    return [...list]
+      .sort((a, b) => productRank(a, availability, lowT) - productRank(b, availability, lowT))
+      .slice(0, 200);
+  }, [base, type, material, availability, lowT]);
 
-  // Top level: pick a collection.
-  if (!collection) {
-    return (
-      <div className="browse">
-        <div className="facet-label">Collections</div>
-        <div className="coll-grid">
-          {main
-            .filter((c) => collCounts.get(c.handle))
-            .map((c) => (
-              <button
-                key={c.handle}
-                className="coll-chip"
-                onClick={() => { setType(null); setMaterial(null); setCollection(c); }}
-              >
-                {c.title} <span className="cnt">{collCounts.get(c.handle)}</span>
-              </button>
-            ))}
-        </div>
-      </div>
-    );
-  }
+  const collItems = main
+    .filter((c) => collCounts.get(c.handle))
+    .map((c) => ({ key: c.handle, title: c.title, count: collCounts.get(c.handle) }));
 
-  // Inside a collection: filters + product list.
   return (
     <div className="browse">
-      <div className="crumbs">
-        <button className="crumb" onClick={() => { setCollection(null); setType(null); setMaterial(null); }}>
-          ← Collections
-        </button>
-        <span className="sep">›</span>
-        <span className="crumb on">{collection.title}</span>
-      </div>
-
+      {collItems.length > 0 && (
+        <FilterRow
+          label="Collection"
+          items={collItems}
+          active={collection}
+          onPick={(k) => { setCollection(k); setType(null); setMaterial(null); }}
+        />
+      )}
       {typeFacet.length > 1 && (
-        <FilterRow label="Product Type" items={typeFacet} active={type} onPick={setType} />
+        <FilterRow
+          label="Product Type"
+          items={typeFacet.map((i) => ({ key: i.title, title: i.title, count: i.count }))}
+          active={type}
+          onPick={setType}
+        />
       )}
       {matFacet.length > 1 && (
-        <FilterRow label="Material" items={matFacet} active={material} onPick={setMaterial} />
+        <FilterRow
+          label="Material"
+          items={matFacet.map((i) => ({ key: i.title, title: i.title, count: i.count }))}
+          active={material}
+          onPick={setMaterial}
+        />
       )}
 
       <div className="results">
         {filtered.map((p) => (
           <ProductCard key={p.id} product={p} availability={availability} config={config} productIndex={productIndex} />
         ))}
+        {filtered.length === 0 && <div className="center muted">No matches.</div>}
       </div>
     </div>
   );
@@ -92,9 +87,9 @@ function FilterRow({ label, items, active, onPick }) {
         </button>
         {items.map((it) => (
           <button
-            key={it.title}
-            className={`facet-chip ${active === it.title ? 'on' : ''}`}
-            onClick={() => onPick(active === it.title ? null : it.title)}
+            key={it.key}
+            className={`facet-chip ${active === it.key ? 'on' : ''}`}
+            onClick={() => onPick(active === it.key ? null : it.key)}
           >
             {it.title} <span className="cnt">{it.count}</span>
           </button>
