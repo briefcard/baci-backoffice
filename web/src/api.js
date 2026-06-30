@@ -1,0 +1,23 @@
+async function jget(url) {
+  const r = await fetch(url, { credentials: 'include' });
+  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  return r.json();
+}
+async function jpost(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  return r.json();
+}
+
+export const api = {
+  me: () => jget('/api/me'),
+  snapshot: () => jget('/api/snapshot'),
+  inventory: () => jget('/api/inventory'),
+  requestLink: (email) => jpost('/api/auth/request', { email }),
+  logout: () => jpost('/api/auth/logout'),
+};
