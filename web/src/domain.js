@@ -32,6 +32,14 @@ export function productRank(product, availabilityMap, lowThreshold = 10) {
   return best;
 }
 
+export function maxAdditionalPct(wholesaleSubtotal, tiers) {
+  let pct = 0;
+  for (const t of [...(tiers || [])].sort((a, b) => a.min_order - b.min_order)) {
+    if (wholesaleSubtotal >= t.min_order) pct = t.additional_pct;
+  }
+  return pct;
+}
+
 export function money(n, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(n) || 0);
 }

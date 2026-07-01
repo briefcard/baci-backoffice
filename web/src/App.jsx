@@ -3,7 +3,9 @@ import * as sync from './sync.js';
 import { api } from './api.js';
 import { ProductCard } from './components/ProductCard.jsx';
 import { BrowseView } from './components/BrowseView.jsx';
-import { productRank } from './domain.js';
+import { productRank, money } from './domain.js';
+import { Cart } from './components/Cart.jsx';
+import { useCart, cartCount, cartSubtotal } from './cart.js';
 
 function useSync() {
   return useSyncExternalStore(sync.subscribe, sync.getState);
@@ -89,6 +91,8 @@ function FreshnessBadge({ status, syncedAt }) {
 function Shell() {
   const s = useSync();
   const [query, setQuery] = useState('');
+  const [showCart, setShowCart] = useState(false);
+  const cartItems = useCart();
 
   const productIndex = useMemo(() => {
     const m = new Map();
@@ -158,6 +162,16 @@ function Shell() {
           />
         )}
       </main>
+
+      {cartItems.length > 0 && (
+        <button className="cartbar" onClick={() => setShowCart(true)}>
+          <span>
+            {cartCount(cartItems)} item{cartCount(cartItems) !== 1 ? 's' : ''}
+          </span>
+          <span>Review order · {money(cartSubtotal(cartItems), s.config?.currency || 'USD')}</span>
+        </button>
+      )}
+      {showCart && <Cart config={s.config} onClose={() => setShowCart(false)} />}
     </div>
   );
 }

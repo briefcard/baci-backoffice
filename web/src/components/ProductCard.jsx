@@ -1,5 +1,6 @@
 import React from 'react';
 import { unitWholesalePrice, stockState, stateRank, money } from '../domain.js';
+import { cart, useCart } from '../cart.js';
 
 function fmtEta(d) {
   if (!d) return null;
@@ -14,6 +15,7 @@ export function ProductCard({ product, availability, config, productIndex }) {
   const lowT = config?.lowThreshold ?? 10;
   const pct = config?.discountPct ?? 35;
   const currency = config?.currency || 'USD';
+  const cartItems = useCart();
 
   // Out-of-stock variants sink to the bottom of the card.
   const variants = [...product.variants].sort(
@@ -49,6 +51,7 @@ export function ProductCard({ product, availability, config, productIndex }) {
           <span className="num">{Math.max(avail, 0)}</span>
           <span className="lbl">{state === 'out' ? 'out' : 'in stock'}</span>
         </div>
+        <AddControl variant={v} product={product} unit={price} inCart={cartItems.find((i) => i.variantId === v.id)} />
       </div>
     );
   });
@@ -87,6 +90,35 @@ export function ProductCard({ product, availability, config, productIndex }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function AddControl({ variant, product, unit, inCart }) {
+  if (!inCart) {
+    return (
+      <button
+        className="add-btn"
+        onClick={() =>
+          cart.add({
+            variantId: variant.id,
+            productId: product.id,
+            title: product.title,
+            sku: variant.sku,
+            image: product.image,
+            unit,
+          })
+        }
+      >
+        + Add to order
+      </button>
+    );
+  }
+  return (
+    <div className="qty">
+      <button onClick={() => cart.setQty(variant.id, inCart.qty - 1)} aria-label="decrease">−</button>
+      <span className="qn">{inCart.qty}</span>
+      <button onClick={() => cart.setQty(variant.id, inCart.qty + 1)} aria-label="increase">+</button>
     </div>
   );
 }

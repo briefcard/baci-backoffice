@@ -9,6 +9,7 @@ import { cfg } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
+import { createDraftOrder } from './orders.js';
 import { addClient, clientCount } from './stream.js';
 import { verifyShopifyHmac, handleInventoryLevelUpdate } from './webhooks.js';
 import {
@@ -159,6 +160,17 @@ app.get('/auth/shopify/callback', async (req, reply) => {
   } catch (err) {
     req.log.error(err);
     return reply.code(500).send(`Install failed: ${err.message}`);
+  }
+});
+
+// ---- Order capture ----
+app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) => {
+  try {
+    const result = await createDraftOrder(req.rep, req.body || {});
+    return { ok: true, ...result };
+  } catch (err) {
+    req.log.error({ err }, 'draft order failed');
+    return reply.code(400).send({ error: String(err?.message || err) });
   }
 });
 

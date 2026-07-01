@@ -21,4 +21,5 @@ export const api = {
   login: (email, password) => jpost('/api/auth/login', { email, password }),
   requestLink: (email) => jpost('/api/auth/request', { email }),
   logout: () => jpost('/api/auth/logout'),
+  createOrder: (payload) => jpost('/api/orders', payload),
 };
