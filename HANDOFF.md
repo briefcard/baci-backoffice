@@ -1,0 +1,261 @@
+# Baci Milano — B2B Rep "Sales Floor" App · Handoff / Context Document
+
+_Last updated: 2026-06-30. Share this whole file with a new Claude thread to continue._
+
+---
+
+## 0. TL;DR — where things stand
+
+An offline-first PWA that lets ~10 Baci Milano B2B sales reps, on tradeshow floors / calls,
+see live stock + wholesale pricing and capture orders as **Shopify draft orders**. It's built
+(M1 lookup + M2 order capture + customer matching + BackOrder) and deployed to Render, but the
+**live Shopify catalog sync has been the hard part** — a chain of 5 bugs, all now fixed in code.
+
+**Right now:** all fixes are committed locally (HEAD = `ab04334`). The owner needs to **push +
+redeploy + re-authorize** (a scope change was added). After that, verify the live catalog syncs
+and test order capture. See §8 (Immediate next steps).
+
+- **Repo:** https://github.com/briefcard/baci-backoffice (branch `main`)
+- **Local path:** `~/Documents/baci-rep-app`
+- **Live URL:** https://baci-backoffice.onrender.com
+- **Health/diagnostics:** `GET https://baci-backoffice.onrender.com/api/health` →
+  `{ installed, products, snapshotVersion, apiVersion, lastError, streamClients }` (unauthenticated)
+
+---
+
+## 1. The business & the goal
+
+- **Company:** Baci Milano (Italian-**designed**, mass-manufactured tableware/home décor; NOT
+  made-in-Italy/handmade — never claim that). Store: bacimilanousa.com.
+- **Problem being solved:** reps use a paper SKU/price order form; when a customer wants an
+  out-of-stock item they lose momentum. This app gives instant live stock + wholesale price +
+  out-of-stock playbook + on-the-spot order capture — **without giving reps Shopify admin access**
+  and **without a giant spreadsheet**.
+- **Reps:** ~10 to start, individual logins.
+
+## 2. Shopify account facts (important constraints)
+
+- **Plan: standard Shopify, NOT Plus** → native Shopify B2B (companies/wholesale catalogs/price
+  lists) is unavailable. That's why we built custom.
+- **Store domains:** public `bacimilanousa.com`; **.myshopify = `769684-2.myshopify.com`**.
+- **Shop gid:** `gid://shopify/Shop/76919931192`.
+- **App:** a Shopify app named "Baci Backoffice". The owner has **only the Client ID + Client
+  Secret** (Partner-style app) — no pre-made Admin API token — so we use the **OAuth install flow**.
+  - **Client ID (API key, public/safe):** `359ebdfd44d98e0ccf430f1110298b0e`
+  - Client Secret is NOT in the repo (env var only; also doubles as the webhook HMAC secret).
+- **Locations** (3):
+  - `gid://shopify/Location/104277705016` — **Miami Warehouse** = the ONLY "sellable" location
+    (available-to-sell + incoming are read from here).
+  - `gid://shopify/Location/107087429944` — B2B Virtual Warehouse (excluded from sellable).
+  - `gid://shopify/Location/84262060344` — 1835 E Hallandale Beach Blvd (office; excluded).
+- **Catalog:** 268 products total; ~250 after B2B exclusion (see §4). ~1 variant per product mostly.
+
+## 3. Architecture
+
+Single Render **web service** serves BOTH the API and the built PWA (one origin, mobile-reachable),
+plus a Render Postgres. Shopify is the single source of truth.
+
+```
+ SHOPIFY  ──(OAuth token)──▶  RENDER (Node/Fastify)  ──serves──▶  PWA (React/Vite, offline-first)
+  products/variants/inv        /api/snapshot (catalog+stock)       IndexedDB cache (Dexie)
+  b2b.* metafields             /api/inventory?since= (deltas)      SSE live updates
+  inventory_levels/update ───▶ /api/stream (SSE live push)         search + Collection/Type/Material
+  draftOrderCreate ◀────────── /api/orders (draft orders)          cart → draft order
+                               /auth/shopify/* (OAuth)             rep login (password or magic link)
+                               Postgres: shop_tokens, reps, audit
+```
+
+- **Backend:** Node + **Fastify**, ESM. `@fastify/static` serves `web/dist` in production with an
+  SPA fallback (excludes `/api /auth /webhooks`). Shopify Admin **GraphQL**.
+- **Frontend:** **React + Vite + vite-plugin-pwa (Workbox)** + **Dexie** (IndexedDB). Mobile-first.
+- **Live sync design:** snapshot cached on device; SSE push on `inventory_levels/update`; instant
+  re-sync on reconnect; polling backstop. (Webhook registration itself is not yet wired — periodic
+  10-min rebuild + SSE scaffold are in place; see §7 pending.)
+
+## 4. Locked business rules
+
+- **Wholesale price** (rep-facing, they can't edit a line): per-variant `b2b.wholesale_price`
+  metafield if set, else **retail − 35%** (global `b2b.wholesale_discount_pct` shop metafield = 35).
+- **MSRP** = retail (shown struck-through next to the B2B price).
+- **Volume discount ladder** (the ONLY negotiation lever; order-level, capped by wholesale
+  subtotal): 0 under $10k, **+2% per $10k band, cap +10% at $50k+**. Stored in shop metafield
+  `b2b.volume_discount_tiers` (JSON). Rep can apply 0→cap in the cart.
+- **Low stock:** available `< 10`. **Out:** `<= 0`.
+- **Sellable location:** Miami Warehouse only (`104277705016`).
+- **Design** (the pattern line) = the **last dash-separated segment of the product title**
+  (e.g. "…- Aqua"). Reliable heuristic.
+- **Main collections** (the ONLY ones shown at top of browse, in this order): Mamma Mia,
+  Sagrada Familia, Aqua, Zodiac Cups (`zodiac-vibe`), Dolce Far Niente (`dolce-far-niente` — VERIFY
+  this handle exists), Portofino, Crystal Touch, Firenze, Teste Matte, Baroque & Rock, Joke.
+  All other collections (SEO/system: `all`, `appplaza-best-sellers`, the 4 `baci-milano-*` megas,
+  `for-shopify-performance-tracking`, `featured-items`, `baci-summer-collections`) are excluded.
+- **Materials** (filter; derived from product **tags**): Acrylic, Melamine, Porcelain, Polyresin,
+  Polycarbonate, Bamboo, Cotton, Stainless Steel. **NO Glass, NO Crystal.** "CPC" and the
+  "Crystal Touch" line map to **Polycarbonate**. (They don't carry glass; cups are Acrylic or
+  Porcelain; Crystal Touch is CPC/Polycarbonate.)
+- **B2B exclusion:** products whose **title or tags contain "B2B"** are excluded from the catalog
+  (owner's rule — e.g. "(B2B Only)" items are internal). Applied in `buildSnapshot` + seed loader.
+- **"BackOrder"** = **units on order / on the way to US** (incoming inventory), NOT a customer
+  backordering. Read from Shopify's native **`incoming`** quantity at the Miami location.
+  ASSUMPTION to confirm: incoming lands at Miami; if POs/transfers target another location,
+  change `$loc` accordingly.
+
+## 5. Shopify metafields (all created live, namespace `b2b`)
+
+Product-variant: `wholesale_price` (money, def 238377402680), `case_pack` (int, 238377435448),
+`min_order_qty` (int, 238377468216), `restock_eta` (date, 238377500984).
+Product: `substitutes` (list.product_reference, 238377533752).
+Shop: `wholesale_discount_pct` (number_decimal = **35**, def 238407680312),
+`volume_discount_tiers` (json, def 238407713080). Most are unpopulated (pricing works off the
+35% default with zero data entry; overrides/ETAs/substitutes are optional polish).
+
+## 6. Auth model
+
+- Reps authenticate to the PWA only (never Shopify). Session = JWT in an httpOnly cookie.
+- **`AUTH_DISABLED=true`** bypasses login (LOCAL DEV ONLY — set in `server/.env`; Render = false).
+- **Interim password auth:** `REP_LOGINS` env var = JSON, e.g.
+  `[{"email":"jane@bacimilanousa.com","name":"Jane","password":"..."}]` (or `{"email":"pw"}` map).
+  Plaintext, env-only, fine for an internal tool. `POST /api/auth/login`.
+- **Magic-link** path exists (`/api/auth/request` + `/auth/callback`) but needs a `RESEND_API_KEY`
+  (not set yet). Switch to it later with no code changes.
+- The **Shopify Admin token** lives only server-side (obtained via OAuth, stored in Postgres
+  `shop_tokens`; falls back to a static `SHOPIFY_ADMIN_TOKEN` env if ever set).
+
+## 7. What's built & working vs pending
+
+**Built (committed):**
+- M1 lookup: offline-first PWA, snapshot, search, **Collection → Product Type → Material** filter
+  rows (products always visible), big color-coded stock number, MSRP + B2B price, out-of-stock
+  sorted to the bottom, mobile-first, "Showcase · N" pill when serving seed data.
+- OAuth install (Client ID/Secret → token), password auth, `/api/health` diagnostics.
+- **M2 order capture:** "+ Add to order" + qty stepper per SKU → floating cart bar → cart drawer
+  (line items @ wholesale, subtotal, capped volume-discount input, customer name/email/phone,
+  notes) → `POST /api/orders` → `draftOrderCreate`. Per-line `appliedDiscount` = wholesale %,
+  order-level `appliedDiscount` = capped volume %, `note`, tags `b2b-app`+`rep:<name>`,
+  customAttributes (Sales rep / Rep email / Customer / Phone). Returns draft name + invoiceUrl.
+- **Customer matching:** find existing customer by email (dedupe) or create; attach via
+  `purchasingEntity.customerId`; graceful fallback to email-on-draft. (Needs the scope re-auth.)
+- **BackOrder:** reads `incoming` qty; card shows "+N incoming" and "BackOrder · ETA".
+
+**Pending / not yet done:**
+- **The live sync has never successfully completed in production yet** — it's now unblocked by the
+  fixes but requires the deploy + re-auth (§8). Until then Render shows 0 products.
+- Register the `inventory_levels/update` **webhook** for true real-time push (currently periodic
+  10-min rebuild + SSE scaffold only).
+- Confirm BackOrder `incoming` location assumption.
+- Later/optional: quote PDF, reserve-against-incoming, per-rep analytics, order_audit DB writes,
+  barcode camera scan (variant barcodes are empty; boxes have codes — backfill needed).
+
+## 8. IMMEDIATE NEXT STEPS (do these first)
+
+1. **Update app scopes in Shopify** (customer matching added `read_customers`/`write_customers`):
+   ```bash
+   cd ~/Documents/baci-rep-app && npx @shopify/cli@latest app deploy
+   ```
+2. **Push** so Render redeploys (HEAD `ab04334` must be on GitHub):
+   ```bash
+   git push
+   ```
+3. **Re-authorize:** open `https://baci-backoffice.onrender.com/?shop=769684-2.myshopify.com`
+   in a browser logged into the store. The server auto-detects the missing scopes and redirects to
+   Shopify's Approve screen (now including customer access). Approve.
+   - IMPORTANT: do this in a context WITHOUT a stale service worker (incognito, OR DevTools →
+     Application → Service Workers → Unregister) the first time, because a cached old SW can
+     intercept the `/auth` navigation.
+4. **Verify:** `curl https://baci-backoffice.onrender.com/api/health` → expect
+   `installed:true`, `products` ~250, `lastError:null`, `apiVersion:"2026-04"`.
+5. **Test order capture** on the live app: add items → Review order → fill customer + notes →
+   Create draft order → confirm it appears in Shopify → Orders → Drafts, priced at wholesale,
+   tagged with the rep, and that an existing-customer email attaches (no duplicate).
+
+## 9. The bug-fix chain (so you don't re-litigate "why doesn't it work live")
+
+Live sync showed 0 products for a long time. The data + query were always fine (verified: 268
+products). Root causes, ALL FIXED:
+1. **App URL didn't initiate OAuth** — Shopify loads `/?shop=...` after install; the server just
+   served the PWA. Fix: onRequest hook redirects `/?shop=...`→`/auth/shopify/install` when no token
+   or missing scopes (commit 2291b52).
+2. **API version `2025-01` out of Shopify support** → bumped to `2026-04` (58a9c75).
+3. **Production service worker intercepted `/auth`** (Workbox served cached shell, OAuth never hit
+   server — "works in curl/local, fails in browser"). Fix: `navigateFallbackDenylist` for
+   `/auth /api /webhooks` in `web/vite.config.js` + made `/install` idempotent (359e2f8).
+4. **Snapshot query MAX_COST_EXCEEDED** (cost 1346 > 1000). Fix: shrink to `products(30)` /
+   `variants(40)` / `collections(12)` and fetch **only Miami** via `inventoryLevel(locationId:$loc)`
+   (single, not the `inventoryLevels` connection) — validated < 1000 (5fe0abb).
+5. **Duplicate `/api/orders` route** (old M2 placeholder + new route) crashed boot with
+   `FST_ERR_DUPLICATED_ROUTE` — only trips at runtime, not `node --check`. Fixed (ab04334).
+
+Diagnosis tool: `/api/health.lastError` surfaces the exact sync error. Use it.
+
+## 10. File map (server/src + web/src)
+
+- `server/src/config.js` — env config; `MATERIALS`, `MAIN_COLLECTIONS`, `scopes`, `scopesSatisfied()`,
+  excluded collections, sellable location, discount %.
+- `server/src/snapshot.js` — `buildSnapshot()` (paginates products, Miami inventory available+incoming,
+  materials/design/collections, B2B exclusion), `loadSeed()` (serves `seed-snapshot.json` when no
+  token), `snapshotResponse()` (+ mainCollections), in-memory `cache`.
+- `server/src/orders.js` — `createDraftOrder(rep, body)`: wholesale line pricing, capped volume
+  discount, `findOrCreateCustomer()`, `draftOrderCreate`.
+- `server/src/oauth.js` — install URL, HMAC verify, code→token exchange. `SHOP_RE` regex.
+- `server/src/tokens.js` — token + granted-scope storage (Postgres `shop_tokens`, memory-cached);
+  `getToken`, `getGrantedScopes`, `saveToken`.
+- `server/src/server.js` — Fastify app, all routes, onRequest OAuth entry hook, static serving,
+  `ensureLiveSync()`, boot.
+- `server/src/domain.js` — pricing/availability/rank helpers (server copy).
+- `server/src/{auth,db,shopify,stream,webhooks}.js` — magic-link/password auth, pg pool + migrate,
+  Admin GraphQL client (uses token from tokens.js), SSE broadcast, webhook HMAC + inventory handler.
+- `server/schema.sql` — reps, magic_links, sessions, order_audit, webhook_events, shop_tokens.
+- `web/src/App.jsx` — shell, login, search vs BrowseView, cart bar + Cart overlay.
+- `web/src/components/{BrowseView,ProductCard,Cart}.jsx` — browse filters, product card (+ AddControl,
+  stock, BackOrder), cart drawer.
+- `web/src/{cart,sync,api,db,domain}.js` — cart store, sync engine (snapshot/SSE/offline), fetch
+  wrapper, Dexie, client domain mirror (`maxAdditionalPct`, `money`, `productRank`, etc.).
+- `web/vite.config.js` — PWA config incl. the critical `navigateFallbackDenylist`.
+- `render.yaml` — Blueprint (web service `baci-backoffice` + Postgres `baci-backoffice-db` + env).
+- `shopify.app.toml` — app config (scopes, redirect_urls, App URL, embedded=false,
+  use_legacy_install_flow=true). Deployed via `shopify app deploy`.
+- `server/seed-snapshot.json` — 24-product real showcase seed (Aqua + Sagrada Familia), gitignored,
+  served when no token. `BUILD-SPEC.md` — the fuller original spec.
+
+## 11. Env vars (Render web service)
+
+`SHOPIFY_STORE=769684-2.myshopify.com`, `SHOPIFY_API_KEY`=Client ID, `SHOPIFY_API_SECRET`=Client
+Secret (also webhook HMAC), `SHOPIFY_SCOPES` (now includes read_customers,write_customers — or
+leave unset to use the code default which includes them), `APP_URL=https://baci-backoffice.onrender.com`,
+`AUTH_DISABLED=false`, `REP_LOGINS` (JSON), `JWT_SECRET` (auto), `DATABASE_URL` (from DB),
+`RESEND_API_KEY` (not set yet), `SHOPIFY_API_VERSION` (optional; code default 2026-04).
+
+## 12. Run locally
+
+```bash
+cd server && cp .env.example .env   # set AUTH_DISABLED=true to skip login; SHOPIFY creds optional
+npm install && npm start            # :8080, serves seed if no token
+# separate terminal:
+cd web && npm install && npm run dev -- --host   # :5173, proxies /api → :8080
+```
+Local uses NO service worker (Vite dev), which is why OAuth issues only appear in production.
+`server/.env` and `server/seed-snapshot.json` are gitignored.
+
+## 13. Gotchas that bit us (read before changing things)
+
+- Adding fields/connections to the snapshot query risks MAX_COST_EXCEEDED. Validate cost with a
+  test query via the Shopify MCP before deploying (single-location `inventoryLevel` keeps it cheap).
+- The PWA service worker WILL intercept navigations in production — keep `/auth /api /webhooks` in
+  `navigateFallbackDenylist`, and clear the old SW (incognito/unregister) when testing OAuth.
+- `node --check` does NOT catch Fastify duplicate-route or runtime errors — actually boot the
+  server (`npm start`) after route changes.
+- `Customer.email` output field is deprecated (use `defaultEmailAddress.emailAddress`); the
+  `customers(query:"email:...")` filter still works and we only select `id`.
+- Scope changes require `shopify app deploy` (tells Shopify) + re-auth; the server auto-triggers
+  re-auth via `getGrantedScopes` + `scopesSatisfied`.
+- `gh` CLI and `jq` are NOT installed on the owner's machine; use `git`/`node` directly. Pushing to
+  GitHub needs a PAT (password auth is disabled) or the Claude GitHub connector authorized on the
+  `briefcard` org.
+
+## 14. Commit history (most recent first)
+
+`ab04334` fix duplicate /api/orders route · `fd6905a` BackOrder (incoming qty) · `3441e07` customer
+matching + scope upgrade · `798551d` M2 order capture · `000dda6` materials fix · `5fe0abb` query
+cost fix · `359e2f8` SW denylist · `2291b52` OAuth from App URL · `58a9c75` health diagnostics +
+API version · `31e4745`/`764fa53` browse redesign · `5630781` showcase pill · `da3fe0b` password
+auth · `0b95383` OAuth install · `e582269` M1 scaffold.
