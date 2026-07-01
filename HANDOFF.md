@@ -251,6 +251,24 @@ first-class Shopify feature:
   explicit location behaves as expected in POS at a tradeshow (vs. the online-only context this
   API token operates in). Worth a dry run with the actual POS device before the first live event.
 
+**Checkout-captain queue (BUILT 2026-07-01, in the app):** a dedicated **Checkout** tab in this
+same PWA, so one person running POS doesn't have to hunt drafts or do deposit math. It lists the
+draft orders this app created (`GET /api/checkout/queue` → Shopify `draftOrders(query:"tag:b2b-app",
+sortKey:UPDATED_AT, reverse:true)`, parsed in `server/src/checkout.js`), each row showing: draft #,
+**Ready vs Deposit** badge, customer, rep, and **the exact amount to collect now** (full total for
+ready, the stamped deposit $ for backorders — with the balance shown too). "Take payment ▸"
+deep-links straight to that draft's **Shopify Admin page** (`admin.shopify.com/store/<handle>/
+draft_orders/<legacyResourceId>`) where the captain collects payment / sends it to POS. Auto-refreshes
+every 20s; open orders on top, "Completed" (draft has `completedAt`) greyed below. Gated by
+`CAPTAIN_EMAILS` env (comma list; **empty = every logged-in rep sees it**, which is the current
+default and what dev/AUTH_DISABLED uses) — set it to lock the tab to one person. `isCaptain` comes
+back on `/api/me`; the queue route also hard-checks it server-side (403 otherwise).
+- **Possible scope follow-up:** the draftOrders read validated as also wanting `read_quick_sale`.
+  Our existing `read_draft_orders` almost certainly covers it (the create mutation already works),
+  but if `/api/checkout/queue` ever 403/scope-errors live, add `read_quick_sale` to `cfg.scopes`
+  and re-auth. Not added pre-emptively to avoid risking the OAuth install URL with an unverified
+  scope name.
+
 ## 10. File map (server/src + web/src)
 
 - `server/src/config.js` — env config; `MATERIALS`, `MAIN_COLLECTIONS`, `scopes`, `scopesSatisfied()`,
@@ -264,6 +282,9 @@ first-class Shopify feature:
 - `server/src/customers.js` (new, 2026-07-01) — `searchCustomers(q)`, `resolveCustomer(customer)`
   (fetches fresh tags server-side; never trusts client-supplied tier info), `isRepeatCustomer(tags)`
   (checks for a tag matching `/b2b/i`).
+- `server/src/checkout.js` (new, 2026-07-01) — `listCheckoutQueue()`: reads `tag:b2b-app` draft
+  orders and parses each into the captain-facing row (type, rep, customer, dueNow, deposit/balance,
+  Admin deep link). Amount-to-collect prefers the stamped deposit $, falls back to total×pct.
 - `server/src/oauth.js` — install URL, HMAC verify, code→token exchange. `SHOP_RE` regex.
 - `server/src/tokens.js` — token + granted-scope storage (Postgres `shop_tokens`, memory-cached);
   `getToken`, `getGrantedScopes`, `saveToken`.
@@ -274,13 +295,15 @@ first-class Shopify feature:
   Admin GraphQL client (uses token from tokens.js), SSE broadcast, webhook HMAC + inventory handler.
 - `server/schema.sql` — reps, magic_links, sessions, order_audit, webhook_events, shop_tokens.
 - `web/src/App.jsx` — shell, login, search vs BrowseView, cart bar + Cart overlay (passes
-  `s.availability` into `<Cart>` for the ready/backorder preview split).
-- `web/src/components/{BrowseView,ProductCard,Cart,CustomerPicker}.jsx` — browse filters, product
-  card (+ AddControl, stock, BackOrder), cart drawer (ready/backorder sections + deposit preview,
-  2026-07-01), customer search-or-add typeahead (2026-07-01, new file).
+  `s.availability` into `<Cart>`); captures `me` from `/api/me` and, for captains, shows a
+  Browse/Checkout tab toggle (2026-07-01).
+- `web/src/components/{BrowseView,ProductCard,Cart,CustomerPicker,CheckoutView}.jsx` — browse
+  filters, product card (+ AddControl, stock, BackOrder), cart drawer (ready/backorder sections +
+  deposit preview, 2026-07-01), customer search-or-add typeahead (2026-07-01), captain checkout
+  queue with amount-to-collect + Admin deep link (2026-07-01, new file).
 - `web/src/{cart,sync,api,db,domain}.js` — cart store, sync engine (snapshot/SSE/offline), fetch
-  wrapper (+ `searchCustomers`), Dexie, client domain mirror (`maxAdditionalPct`, `money`,
-  `productRank`, etc.).
+  wrapper (+ `searchCustomers`, `checkoutQueue`), Dexie, client domain mirror (`maxAdditionalPct`,
+  `money`, `productRank`, etc.).
 - `web/vite.config.js` — PWA config incl. the critical `navigateFallbackDenylist`.
 - `render.yaml` — Blueprint (web service `baci-backoffice` + Postgres `baci-backoffice-db` + env).
 - `shopify.app.toml` — app config (scopes, redirect_urls, App URL, embedded=false,
@@ -294,7 +317,10 @@ first-class Shopify feature:
 Secret (also webhook HMAC), `SHOPIFY_SCOPES` (now includes read_customers,write_customers — or
 leave unset to use the code default which includes them), `APP_URL=https://baci-backoffice.onrender.com`,
 `AUTH_DISABLED=false`, `REP_LOGINS` (JSON), `JWT_SECRET` (auto), `DATABASE_URL` (from DB),
-`RESEND_API_KEY` (not set yet), `SHOPIFY_API_VERSION` (optional; code default 2026-04).
+`RESEND_API_KEY` (not set yet), `SHOPIFY_API_VERSION` (optional; code default 2026-04),
+`CAPTAIN_EMAILS` (optional comma list; empty = every rep sees the Checkout tab; set to lock POS
+checkout to one dedicated person), `DEFAULT_DEPOSIT_NEW_PCT`/`DEFAULT_DEPOSIT_REPEAT_PCT`
+(optional; fallbacks if the `b2b.deposit_pct` shop metafield is missing — 40/30).
 
 ## 12. Run locally
 

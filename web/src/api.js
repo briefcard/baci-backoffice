@@ -23,4 +23,5 @@ export const api = {
   logout: () => jpost('/api/auth/logout'),
   createOrder: (payload) => jpost('/api/orders', payload),
   searchCustomers: (q) => jget(`/api/customers/search?q=${encodeURIComponent(q)}`),
+  checkoutQueue: () => jget('/api/checkout/queue'),
 };

@@ -97,6 +97,13 @@ export const cfg = {
   // Auth / infra (needed for M2; optional in M1 if AUTH_DISABLED=true)
   authDisabled: bool(process.env.AUTH_DISABLED, false),
   repLogins: parseLogins(process.env.REP_LOGINS), // interim email+password auth
+  // Checkout-captain gate. Comma list of emails allowed to see the Checkout queue + take POS
+  // payments. Leave EMPTY to let every logged-in rep act as captain (fine for a small team /
+  // local dev). Set it to lock the Checkout view to one dedicated person.
+  captainEmails: (process.env.CAPTAIN_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
   jwtSecret: process.env.JWT_SECRET || 'dev-insecure-secret-change-me',
   databaseUrl: process.env.DATABASE_URL || '',
   resendApiKey: process.env.RESEND_API_KEY || '',
@@ -107,6 +114,13 @@ export const cfg = {
 export const sellableNumericLocationIds = cfg.sellableLocationIds.map((g) =>
   String(g).split('/').pop()
 );
+
+// Whether an email may act as the checkout captain. No CAPTAIN_EMAILS configured → everyone can
+// (keeps dev + small teams frictionless); once set, only those emails.
+export function isCaptainEmail(email) {
+  if (!cfg.captainEmails.length) return true;
+  return cfg.captainEmails.includes(String(email || '').toLowerCase());
+}
 
 // True when the granted OAuth scopes cover everything the app currently needs.
 export function scopesSatisfied(granted) {

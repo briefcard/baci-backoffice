@@ -5,12 +5,13 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import { cfg, scopesSatisfied } from './config.js';
+import { cfg, scopesSatisfied, isCaptainEmail } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
 import { createOrders } from './orders.js';
 import { searchCustomers } from './customers.js';
+import { listCheckoutQueue } from './checkout.js';
 import { addClient, clientCount } from './stream.js';
 import { verifyShopifyHmac, handleInventoryLevelUpdate } from './webhooks.js';
 import {
@@ -82,7 +83,9 @@ app.get('/api/health', async () => ({
   streamClients: clientCount(),
 }));
 
-app.get('/api/me', { preHandler: requireAuth }, async (req) => ({ rep: req.rep }));
+app.get('/api/me', { preHandler: requireAuth }, async (req) => ({
+  rep: { ...req.rep, isCaptain: isCaptainEmail(req.rep.email) },
+}));
 
 // ---- Auth ----
 app.post('/api/auth/request', async (req, reply) => {
@@ -181,6 +184,18 @@ app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) => {
   } catch (err) {
     req.log.error({ err }, 'draft order failed');
     return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+// ---- Checkout-captain queue: the draft orders this app created, parsed with the amount to
+// collect now + a deep link to the Shopify draft, for the one person running POS payments. ----
+app.get('/api/checkout/queue', { preHandler: requireAuth }, async (req, reply) => {
+  if (!isCaptainEmail(req.rep.email)) return reply.code(403).send({ error: 'not a checkout captain' });
+  try {
+    return { queue: await listCheckoutQueue() };
+  } catch (err) {
+    req.log.error({ err }, 'checkout queue failed');
+    return reply.code(500).send({ error: String(err?.message || err) });
   }
 });
 

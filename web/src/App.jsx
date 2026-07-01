@@ -5,6 +5,7 @@ import { ProductCard } from './components/ProductCard.jsx';
 import { BrowseView } from './components/BrowseView.jsx';
 import { productRank, money } from './domain.js';
 import { Cart } from './components/Cart.jsx';
+import { CheckoutView } from './components/CheckoutView.jsx';
 import { useCart, cartCount, cartSubtotal } from './cart.js';
 
 function useSync() {
@@ -13,20 +14,23 @@ function useSync() {
 
 export default function App() {
   const [auth, setAuth] = useState('checking'); // checking | in | out
-  useEffect(() => {
+  const [me, setMe] = useState(null);
+  const loadMe = () =>
     api
       .me()
-      .then(() => {
+      .then((r) => {
+        setMe(r.rep);
         setAuth('in');
         sync.init();
       })
       .catch(() => setAuth('out'));
+  useEffect(() => {
+    loadMe();
   }, []);
 
   if (auth === 'checking') return <div className="center muted">Loading…</div>;
-  if (auth === 'out')
-    return <Login onLoggedIn={() => { setAuth('in'); sync.init(); }} />;
-  return <Shell />;
+  if (auth === 'out') return <Login onLoggedIn={loadMe} />;
+  return <Shell me={me} />;
 }
 
 function Login({ onLoggedIn }) {
@@ -88,11 +92,13 @@ function FreshnessBadge({ status, syncedAt }) {
   return <span className={m.cls}>{m.text}</span>;
 }
 
-function Shell() {
+function Shell({ me }) {
   const s = useSync();
   const [query, setQuery] = useState('');
   const [showCart, setShowCart] = useState(false);
+  const [view, setView] = useState('browse'); // browse | checkout (captain only)
   const cartItems = useCart();
+  const isCaptain = !!me?.isCaptain;
 
   const productIndex = useMemo(() => {
     const m = new Map();
@@ -119,6 +125,8 @@ function Shell() {
 
   if (!s.snapshot) return <div className="center muted">Syncing catalog…</div>;
 
+  const showCheckout = isCaptain && view === 'checkout';
+
   return (
     <div className="app">
       <header>
@@ -131,16 +139,30 @@ function Shell() {
             <FreshnessBadge status={s.status} syncedAt={s.syncedAt} />
           </span>
         </div>
-        <input
-          className="search"
-          placeholder="Search SKU, name, or type…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          autoFocus
-        />
+        {isCaptain && (
+          <div className="tabs">
+            <button className={view === 'browse' ? 'tab active' : 'tab'} onClick={() => setView('browse')}>
+              Browse
+            </button>
+            <button className={view === 'checkout' ? 'tab active' : 'tab'} onClick={() => setView('checkout')}>
+              Checkout
+            </button>
+          </div>
+        )}
+        {!showCheckout && (
+          <input
+            className="search"
+            placeholder="Search SKU, name, or type…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoFocus
+          />
+        )}
       </header>
       <main>
-        {query.trim() ? (
+        {showCheckout ? (
+          <CheckoutView config={s.config} />
+        ) : query.trim() ? (
           <>
             {results.map((p) => (
               <ProductCard
@@ -163,7 +185,7 @@ function Shell() {
         )}
       </main>
 
-      {cartItems.length > 0 && (
+      {!showCheckout && cartItems.length > 0 && (
         <button className="cartbar" onClick={() => setShowCart(true)}>
           <span>
             {cartCount(cartItems)} item{cartCount(cartItems) !== 1 ? 's' : ''}
