@@ -111,7 +111,7 @@ query Snapshot($cursor: String, $loc: ID!) {
           inventoryItem {
             id
             inventoryLevel(locationId: $loc) {
-              quantities(names: ["available"]) { name quantity }
+              quantities(names: ["available", "incoming"]) { name quantity }
             }
           }
         }
@@ -136,8 +136,11 @@ export async function buildSnapshot() {
       if (/b2b/i.test(p.title || '') || (p.tags || []).some((t) => /b2b/i.test(t))) continue;
       const variants = p.variants.nodes.map((v) => {
         // We fetch only the sellable (Miami) location's level, so that IS available-to-sell.
+        // `incoming` = units on order / on the way to us (BackOrder flag).
         const lvl = v.inventoryItem?.inventoryLevel;
-        const available = lvl?.quantities?.find((q) => q.name === 'available')?.quantity ?? 0;
+        const qn = (name) => lvl?.quantities?.find((q) => q.name === name)?.quantity ?? 0;
+        const available = qn('available');
+        const incoming = qn('incoming');
         availability.set(v.id, available);
         if (v.inventoryItem?.id) {
           invItemToVariant.set(String(v.inventoryItem.id).split('/').pop(), v.id);
@@ -153,6 +156,7 @@ export async function buildSnapshot() {
           moq: v.moq?.value ? Number(v.moq.value) : null,
           restockEta: v.eta?.value || null,
           available,
+          incoming,
         };
       });
       products.push({

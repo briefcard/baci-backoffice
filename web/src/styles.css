@@ -128,7 +128,8 @@ main { padding: 14px 14px 64px; display: grid; gap: 12px; }
 
 .oos { margin-top: 6px; display: flex; gap: 10px; align-items: center; font-size: 12px; }
 .eta { color: var(--muted); }
-.backorder { color: var(--accent); font-weight: 700; }
+.backorder { color: #1558d6; font-weight: 700; }
+.stocknum .incoming { font-size: 10px; font-weight: 700; color: #1558d6; margin-top: 3px; white-space: nowrap; }
 
 .subs { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .subs-label { font-size: 12px; color: var(--muted); }

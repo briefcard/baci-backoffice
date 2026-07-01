@@ -31,6 +31,7 @@ export function ProductCard({ product, availability, config, productIndex }) {
     if (state === 'out') anyOut = true;
     const price = unitWholesalePrice(v, pct);
     const eta = fmtEta(v.restockEta);
+    const incoming = v.incoming ?? 0;
     return (
       <div className={`vrow ${state === 'out' ? 'isout' : ''}`} key={v.id}>
         <div className="vmain">
@@ -38,8 +39,13 @@ export function ProductCard({ product, availability, config, productIndex }) {
           <div className="vsku">{v.sku || '—'}</div>
           {state !== 'in' && (
             <div className="oos">
-              {eta ? <span className="eta">Back ~{eta}</span> : null}
-              <span className="backorder">Backorder ▸</span>
+              {incoming > 0 ? (
+                <span className="backorder">BackOrder{eta ? ` · ${eta}` : ''}</span>
+              ) : eta ? (
+                <span className="eta">Restock ~{eta}</span>
+              ) : (
+                state === 'out' && <span className="eta">None incoming</span>
+              )}
             </div>
           )}
         </div>
@@ -50,6 +56,7 @@ export function ProductCard({ product, availability, config, productIndex }) {
         <div className={`stocknum ${state}`}>
           <span className="num">{Math.max(avail, 0)}</span>
           <span className="lbl">{state === 'out' ? 'out' : 'in stock'}</span>
+          {incoming > 0 && <span className="incoming">+{incoming} incoming</span>}
         </div>
         <AddControl variant={v} product={product} unit={price} inCart={cartItems.find((i) => i.variantId === v.id)} />
       </div>
