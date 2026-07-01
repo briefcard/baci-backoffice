@@ -85,6 +85,7 @@ function CheckoutRow({ d, currency, completed }) {
           <span className={`badge ${isBackorder ? 'warn' : 'ready'}`}>
             {isBackorder ? 'Deposit' : d.type === 'ready' ? 'Ready' : 'Order'}
           </span>
+          {d.cardOnFile && <span className="badge card">💳 Save card</span>}
           {completed && <span className="badge done">Paid</span>}
         </div>
         <div className="co-line2 muted small">

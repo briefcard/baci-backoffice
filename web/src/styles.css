@@ -204,6 +204,23 @@ main { padding: 14px 14px 64px; display: grid; gap: 12px; }
 .cust-manual { display: grid; gap: 8px; }
 .cust-manual input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; background: #fff; font-family: inherit; }
 .cust-manual-actions { display: flex; align-items: center; justify-content: space-between; }
+.cust-picked-actions { display: flex; gap: 12px; flex-shrink: 0; }
+.cust-profile-line { margin-top: 2px; }
+
+/* Full customer profile form */
+.cust-form { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fafafa; }
+.cust-form > input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; background: #fff; font-family: inherit; }
+.cust-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); }
+.cust-check input { width: 18px; height: 18px; }
+.cust-addr { display: grid; gap: 8px; }
+.cust-addr input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; background: #fff; font-family: inherit; }
+.cust-addr-row { display: grid; grid-template-columns: 1fr 70px 90px; gap: 8px; }
+.cust-addr-row .st, .cust-addr-row .zip { text-align: center; }
+.cust-collections .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chips .chip { padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: 13px; cursor: pointer; color: var(--ink); }
+.chips .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.cust-form-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+.badge.card { background: #eaf2ff; color: #1a56c4; }
 .link { background: none; border: 0; color: var(--accent); font-weight: 700; cursor: pointer; padding: 0; }
 .small { font-size: 12px; }
 .badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 2px 6px; border-radius: 6px; margin-left: 4px; vertical-align: middle; }

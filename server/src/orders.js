@@ -87,8 +87,8 @@ async function submitDraftOrder({ lineItems, tags, customAttributes, note, custo
 }
 
 export async function createOrders(rep, body = {}) {
-  const { lines, customer = {}, notes, repDiscountPct } = body;
-  const discountPct = cache.config?.discountPct ?? 35;
+  const { lines, customer = {}, notes, repDiscountPct, cardOnFile } = body;
+  const discountPct = cache.config?.discountPct ?? 50;
 
   const { ready, backorder } = splitLines(lines);
   if (ready.length === 0 && backorder.length === 0) throw new Error('No valid line items');
@@ -111,12 +111,16 @@ export async function createOrders(rep, body = {}) {
 
   const repName = rep?.name || rep?.email || 'unknown';
   const baseTags = ['b2b-app', `rep:${repName}`];
+  // Card-on-file is collected at POS (captain saves the card via the reader) — the app only flags
+  // it on the draft so the captain knows to do it at checkout. No card data ever touches the app.
+  if (cardOnFile) baseTags.push('card-on-file');
   const baseAttrs = [
     { key: 'Sales rep', value: repName },
     { key: 'Rep email', value: rep?.email || '' },
   ];
   if (customer.name) baseAttrs.push({ key: 'Customer', value: String(customer.name) });
   if (customer.phone) baseAttrs.push({ key: 'Phone', value: String(customer.phone) });
+  if (cardOnFile) baseAttrs.push({ key: 'Card on file', value: 'Save card at register (POS)' });
 
   const result = { ready: null, backorder: null };
 

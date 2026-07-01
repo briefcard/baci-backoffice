@@ -126,6 +126,13 @@ plus a Render Postgres. Shopify is the single source of truth.
 Product-variant: `wholesale_price` (money, def 238377402680), `case_pack` (int, 238377435448),
 `min_order_qty` (int, 238377468216), `restock_eta` (date, 238377500984).
 Product: `substitutes` (list.product_reference, 238377533752).
+Customer (created 2026-07-01, all pinned, for the wholesale profile captured during order
+drafting): `location` (single_line_text_field, def 238846804280 — City/State/full address or
+"ONLINE ONLY"), `specialty` (single_line_text_field, def 238847394104 — Gift Store / High End
+Tabletop / Home Decor / etc.), `collections_of_interest` (list.single_line_text_field, def
+238847426872 — the app's main design-line collections). Written via `customerCreate`/`customerUpdate`
+(CustomerInput.metafields); the real ship-to **address** is set separately via `customerAddressCreate`
+(setAsDefault). Card-on-file is NOT a metafield — it's a per-order flag (see §4 / §9a).
 Shop: `wholesale_discount_pct` (number_decimal = **35**, def 238407680312),
 `volume_discount_tiers` (json, def 238407713080),
 `deposit_pct` (json = `{"new_customer":40,"repeat_customer":30}`, def 74254784856376, created
@@ -159,12 +166,22 @@ overrides/ETAs/substitutes are optional polish).
 - **Customer matching:** find existing customer by email (dedupe) or create; attach via
   `purchasingEntity.customerId`; graceful fallback to email-on-draft. (Needs the scope re-auth.)
 - **BackOrder:** reads `incoming` qty; card shows "+N incoming" and "BackOrder · ETA".
-- **Customer lookup (2026-07-01):** `CustomerPicker.jsx` — debounced search-as-you-type against
-  real Shopify customers (`GET /api/customers/search?q=`, name/email/phone), so a rep selects an
-  existing customer instead of retyping info and risking a duplicate. Falls back to a manual
-  "add new customer" form when there's no match. The picked customer's `id` is sent to
-  `/api/orders`; the server re-resolves it (or dedupes-by-email / creates, same as before) and
-  reads that customer's **live tags** itself — the deposit tier can't be spoofed by the client.
+- **Customer lookup + profile (2026-07-01):** `CustomerPicker.jsx` — debounced search-as-you-type
+  against real Shopify customers (`GET /api/customers/search?q=`), so a rep selects an existing
+  customer instead of retyping info and risking a duplicate. "Add new" / "Edit" opens a full
+  **wholesale profile form**: name, email, phone, an **Online-only** toggle, ship-to **address**
+  (street/city/state/zip), **Specialty** (datalist suggestions), and **Collections of interest**
+  (multi-select chips from the app's main collections). Saving `POST`s to `/api/customers`
+  (`upsertCustomer` — create or dedupe-by-email/id, writes the b2b.* customer metafields, and sets
+  the default Shopify address when a full physical address is given & not online-only). The picked
+  customer's `id` is sent to `/api/orders`; the server re-resolves it and reads that customer's
+  **live tags** itself — the deposit tier can't be spoofed by the client.
+- **Card on file (2026-07-01):** a "Card on file — save at the register (POS)" checkbox in the
+  cart. Checking it stamps the draft order(s) with a `card-on-file` tag + "Card on file"
+  customAttribute; the checkout captain sees a **💳 Save card** badge on that queue row and vaults
+  the card via the POS reader when the customer is present. **No card number is ever entered into
+  or stored by this app** — that's a deliberate PCI/compliance decision (Shopify's API has no
+  raw-card store; cards can only be vaulted through secure checkout or a card reader).
 - **Ready/backorder order split + deposit (2026-07-01):** `createOrders()` in `orders.js` (renamed
   from `createDraftOrder`) splits each line by live stock, prices both groups, and submits up to
   two draft orders. `Cart.jsx` shows the split live (as the rep builds the cart) with a deposit
@@ -280,9 +297,10 @@ back on `/api/me`; the queue route also hard-checks it server-side (403 otherwis
 - `server/src/orders.js` — `createOrders(rep, body)` (renamed from `createDraftOrder`, 2026-07-01):
   splits lines into ready/backorder by live stock, prices both, computes the shared volume-discount
   cap + the deposit tier, submits up to two `draftOrderCreate` calls. Returns `{ready, backorder}`.
-- `server/src/customers.js` (new, 2026-07-01) — `searchCustomers(q)`, `resolveCustomer(customer)`
-  (fetches fresh tags server-side; never trusts client-supplied tier info), `isRepeatCustomer(tags)`
-  (checks for a tag matching `/b2b/i`).
+- `server/src/customers.js` (new 2026-07-01, expanded same day) — `searchCustomers(q)` (returns
+  profile fields + address), `upsertCustomer(profile)` (create/dedupe + b2b.* metafields +
+  `customerAddressCreate` default address), `resolveCustomer(customer)` (fetches fresh tags
+  server-side; never trusts client tier info), `isRepeatCustomer(tags)` (tag matching `/b2b/i`).
 - `server/src/checkout.js` (new, 2026-07-01) — `listCheckoutQueue()`: reads `tag:b2b-app` draft
   orders and parses each into the captain-facing row (type, rep, customer, dueNow, deposit/balance,
   Admin deep link). Amount-to-collect prefers the stamped deposit $, falls back to total×pct.

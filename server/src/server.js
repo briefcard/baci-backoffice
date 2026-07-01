@@ -10,7 +10,7 @@ import { cfg, scopesSatisfied, isCaptainEmail } from './config.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
 import { createOrders } from './orders.js';
-import { searchCustomers } from './customers.js';
+import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
 import { addClient, clientCount } from './stream.js';
 import { verifyShopifyHmac, handleInventoryLevelUpdate } from './webhooks.js';
@@ -209,6 +209,19 @@ app.get('/api/customers/search', { preHandler: requireAuth }, async (req, reply)
   } catch (err) {
     req.log.error({ err }, 'customer search failed');
     return reply.code(500).send({ error: 'search failed' });
+  }
+});
+
+// Create/update a wholesale customer profile (name/email/phone + b2b location/specialty/
+// collections-of-interest + ship-to address). Returns the saved customer for the cart to attach.
+app.post('/api/customers', { preHandler: requireAuth }, async (req, reply) => {
+  const body = req.body || {};
+  if (!body.email && !body.id) return reply.code(400).send({ error: 'email or id required' });
+  try {
+    return { customer: await upsertCustomer(body) };
+  } catch (err) {
+    req.log.error({ err }, 'customer upsert failed');
+    return reply.code(400).send({ error: String(err?.message || err) });
   }
 });
 

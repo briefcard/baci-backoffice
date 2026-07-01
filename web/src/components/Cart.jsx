@@ -36,6 +36,7 @@ export function Cart({ config, availability, onClose }) {
   const [customer, setCustomer] = useState(null);
   const [notes, setNotes] = useState('');
   const [disc, setDisc] = useState(0);
+  const [cardOnFile, setCardOnFile] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState(null);
@@ -59,6 +60,7 @@ export function Cart({ config, availability, onClose }) {
         customer: customer ? { id: customer.id || undefined, name: customer.name, email: customer.email, phone: customer.phone } : {},
         notes,
         repDiscountPct: applied,
+        cardOnFile,
       });
       setDone(res);
       cart.clear();
@@ -205,7 +207,11 @@ export function Cart({ config, availability, onClose }) {
               )}
 
               <div className="cfields">
-                <CustomerPicker value={customer} onChange={setCustomer} />
+                <CustomerPicker value={customer} onChange={setCustomer} mainCollections={config?.mainCollections || []} />
+                <label className="cust-check">
+                  <input type="checkbox" checked={cardOnFile} onChange={(e) => setCardOnFile(e.target.checked)} />
+                  Card on file — save the card at the register (POS)
+                </label>
                 <textarea placeholder="Notes for this order" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
               </div>
 

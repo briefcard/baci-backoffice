@@ -3,15 +3,58 @@ import { api } from '../api.js';
 
 const looksLikeEmail = (s) => /\S+@\S+\.\S+/.test(s);
 
-// Search-as-you-type against real Shopify customers so reps attach the order to an existing
-// customer instead of retyping their info and creating a duplicate. Falls back to a manual
-// "new customer" form when there's no match.
-export function CustomerPicker({ value, onChange }) {
+const SPECIALTIES = [
+  'Gift Store',
+  'High End Tabletop',
+  'Home Decor',
+  'Boutique',
+  'Department Store',
+  'Restaurant / Hospitality',
+  'Florist',
+];
+
+const emptyForm = () => ({
+  id: null,
+  name: '',
+  email: '',
+  phone: '',
+  onlineOnly: false,
+  specialty: '',
+  collectionsOfInterest: [],
+  address: { address1: '', address2: '', city: '', province: '', zip: '', country: 'US' },
+});
+
+function formFromCustomer(c) {
+  return {
+    id: c.id || null,
+    name: c.name || '',
+    email: c.email || '',
+    phone: c.phone || '',
+    onlineOnly: !!c.onlineOnly,
+    specialty: c.specialty || '',
+    collectionsOfInterest: c.collectionsOfInterest || [],
+    address: {
+      address1: c.address?.address1 || '',
+      address2: c.address?.address2 || '',
+      city: c.address?.city || '',
+      province: c.address?.province || '',
+      zip: c.address?.zip || '',
+      country: c.address?.country || 'US',
+    },
+  };
+}
+
+// Pick an existing Shopify customer (search-as-you-type, avoids duplicates) or fill out a full
+// wholesale profile — phone, email, location/address, specialty, collections of interest — that's
+// saved straight to the customer's Shopify account when the order is drafted.
+export function CustomerPicker({ value, onChange, mainCollections = [] }) {
   const [mode, setMode] = useState(value ? 'picked' : 'search');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [manual, setManual] = useState({ name: '', email: '', phone: '' });
+  const [form, setForm] = useState(emptyForm());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
   const timer = useRef(null);
 
   useEffect(() => {
@@ -40,17 +83,46 @@ export function CustomerPicker({ value, onChange }) {
     setMode('picked');
   };
 
-  const startManual = () => {
-    setManual(
-      looksLikeEmail(query) ? { name: '', email: query.trim(), phone: '' } : { name: query.trim(), email: '', phone: '' }
-    );
-    setMode('manual');
+  const startNew = () => {
+    const f = emptyForm();
+    if (looksLikeEmail(query)) f.email = query.trim();
+    else f.name = query.trim();
+    setForm(f);
+    setErr('');
+    setMode('form');
   };
 
-  const confirmManual = () => {
-    if (!manual.email.trim()) return;
-    onChange({ id: null, name: manual.name.trim(), email: manual.email.trim(), phone: manual.phone.trim(), isB2B: false });
-    setMode('picked');
+  const editPicked = () => {
+    setForm(formFromCustomer(value));
+    setErr('');
+    setMode('form');
+  };
+
+  const setAddr = (k, v) => setForm((f) => ({ ...f, address: { ...f.address, [k]: v } }));
+  const toggleCollection = (title) =>
+    setForm((f) => ({
+      ...f,
+      collectionsOfInterest: f.collectionsOfInterest.includes(title)
+        ? f.collectionsOfInterest.filter((t) => t !== title)
+        : [...f.collectionsOfInterest, title],
+    }));
+
+  const save = async () => {
+    if (!form.email.trim()) {
+      setErr('Email is required to save a customer.');
+      return;
+    }
+    setErr('');
+    setBusy(true);
+    try {
+      const res = await api.upsertCustomer(form);
+      onChange(res.customer);
+      setMode('picked');
+    } catch (e) {
+      setErr(e?.message || 'Could not save the customer');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const change = () => {
@@ -60,6 +132,7 @@ export function CustomerPicker({ value, onChange }) {
     setMode('search');
   };
 
+  // --- Picked summary ---
   if (mode === 'picked' && value) {
     return (
       <div className="cust-picked">
@@ -71,45 +144,103 @@ export function CustomerPicker({ value, onChange }) {
             {value.email}
             {value.phone ? ` · ${value.phone}` : ''}
           </div>
+          {(value.location || value.specialty || value.collectionsOfInterest?.length > 0) && (
+            <div className="muted small cust-profile-line">
+              {value.location ? value.location : ''}
+              {value.specialty ? `${value.location ? ' · ' : ''}${value.specialty}` : ''}
+              {value.collectionsOfInterest?.length ? ` · ♥ ${value.collectionsOfInterest.join(', ')}` : ''}
+            </div>
+          )}
         </div>
-        <button type="button" className="link" onClick={change}>
-          Change
-        </button>
+        <div className="cust-picked-actions">
+          <button type="button" className="link" onClick={editPicked}>
+            Edit
+          </button>
+          <button type="button" className="link" onClick={change}>
+            Change
+          </button>
+        </div>
       </div>
     );
   }
 
-  if (mode === 'manual') {
+  // --- Profile form (new or edit) ---
+  if (mode === 'form') {
     return (
-      <div className="cust-manual">
+      <div className="cust-form">
+        <input placeholder="Customer / company name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <input type="email" placeholder="Email (required)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+
+        <label className="cust-check">
+          <input
+            type="checkbox"
+            checked={form.onlineOnly}
+            onChange={(e) => setForm({ ...form, onlineOnly: e.target.checked })}
+          />
+          Online only (no physical store)
+        </label>
+
+        {!form.onlineOnly && (
+          <div className="cust-addr">
+            <input placeholder="Street address" value={form.address.address1} onChange={(e) => setAddr('address1', e.target.value)} />
+            <input placeholder="Suite / unit (optional)" value={form.address.address2} onChange={(e) => setAddr('address2', e.target.value)} />
+            <div className="cust-addr-row">
+              <input placeholder="City" value={form.address.city} onChange={(e) => setAddr('city', e.target.value)} />
+              <input className="st" placeholder="State" value={form.address.province} onChange={(e) => setAddr('province', e.target.value)} />
+              <input className="zip" placeholder="ZIP" value={form.address.zip} onChange={(e) => setAddr('zip', e.target.value)} />
+            </div>
+          </div>
+        )}
+
         <input
-          placeholder="Customer / company name"
-          value={manual.name}
-          onChange={(e) => setManual({ ...manual, name: e.target.value })}
+          list="specialty-options"
+          placeholder="Specialty (e.g. Gift Store, High End Tabletop)"
+          value={form.specialty}
+          onChange={(e) => setForm({ ...form, specialty: e.target.value })}
         />
-        <input
-          type="email"
-          placeholder="Email (required)"
-          value={manual.email}
-          onChange={(e) => setManual({ ...manual, email: e.target.value })}
-        />
-        <input
-          placeholder="Phone (optional)"
-          value={manual.phone}
-          onChange={(e) => setManual({ ...manual, phone: e.target.value })}
-        />
-        <div className="cust-manual-actions">
-          <button type="button" className="link" onClick={() => setMode('search')}>
-            ‹ Back to search
+        <datalist id="specialty-options">
+          {SPECIALTIES.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+
+        {mainCollections.length > 0 && (
+          <div className="cust-collections">
+            <div className="muted small">Collections of interest</div>
+            <div className="chips">
+              {mainCollections.map((c) => {
+                const title = c.title || c;
+                const on = form.collectionsOfInterest.includes(title);
+                return (
+                  <button
+                    type="button"
+                    key={title}
+                    className={on ? 'chip on' : 'chip'}
+                    onClick={() => toggleCollection(title)}
+                  >
+                    {title}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {err && <div className="err">{err}</div>}
+        <div className="cust-form-actions">
+          <button type="button" className="link" onClick={() => setMode(value ? 'picked' : 'search')}>
+            ‹ Cancel
           </button>
-          <button type="button" className="primary small" disabled={!manual.email.trim()} onClick={confirmManual}>
-            Use this customer
+          <button type="button" className="primary small" disabled={busy} onClick={save}>
+            {busy ? 'Saving…' : 'Save customer'}
           </button>
         </div>
       </div>
     );
   }
 
+  // --- Search ---
   return (
     <div className="cust-picker">
       <input
@@ -129,11 +260,12 @@ export function CustomerPicker({ value, onChange }) {
                 <div className="muted small">
                   {c.email}
                   {c.phone ? ` · ${c.phone}` : ''}
+                  {c.location ? ` · ${c.location}` : ''}
                 </div>
               </button>
             ))}
           {!loading && results.length === 0 && <div className="cust-row muted">No match.</div>}
-          <button type="button" className="cust-row new" onClick={startManual}>
+          <button type="button" className="cust-row new" onClick={startNew}>
             + Add "{query.trim()}" as a new customer
           </button>
         </div>

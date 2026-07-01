@@ -71,6 +71,7 @@ function parseDraft(n) {
     createdAt: n.createdAt,
     completed: !!n.completedAt,
     type,
+    cardOnFile: tags.includes('card-on-file'),
     rep: attrs['Sales rep'] || tagValue(tags, 'rep:') || '',
     customer: n.customer?.displayName || attrs['Customer'] || n.customer?.defaultEmailAddress?.emailAddress || '',
     total,
