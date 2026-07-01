@@ -79,7 +79,7 @@ export const cfg = {
     .map((s) => s.trim())
     .filter(Boolean),
   lowStockThreshold: Number(process.env.LOW_STOCK_THRESHOLD || 10),
-  defaultDiscountPct: Number(process.env.DEFAULT_WHOLESALE_PCT || 35),
+  defaultDiscountPct: Number(process.env.DEFAULT_WHOLESALE_PCT || 50),
   // Backorder deposit %, owner-set (2026-07-01): new customers put more down than repeat/B2B-tagged ones.
   defaultDepositNewPct: Number(process.env.DEFAULT_DEPOSIT_NEW_PCT || 40),
   defaultDepositRepeatPct: Number(process.env.DEFAULT_DEPOSIT_REPEAT_PCT || 30),

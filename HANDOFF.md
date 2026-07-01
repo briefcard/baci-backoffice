@@ -75,7 +75,8 @@ plus a Render Postgres. Shopify is the single source of truth.
 ## 4. Locked business rules
 
 - **Wholesale price** (rep-facing, they can't edit a line): per-variant `b2b.wholesale_price`
-  metafield if set, else **retail − 35%** (global `b2b.wholesale_discount_pct` shop metafield = 35).
+  metafield if set, else **50% of MSRP / retail − 50%** (global `b2b.wholesale_discount_pct` shop
+  metafield = 50, changed from 35 on 2026-07-01 per owner — "all products at 50% MSRP base").
 - **MSRP** = retail (shown struck-through next to the B2B price).
 - **Volume discount ladder** (the ONLY negotiation lever; order-level, capped by wholesale
   subtotal): 0 under $10k, **+2% per $10k band, cap +10% at $50k+**. Stored in shop metafield
@@ -128,7 +129,7 @@ Product: `substitutes` (list.product_reference, 238377533752).
 Shop: `wholesale_discount_pct` (number_decimal = **35**, def 238407680312),
 `volume_discount_tiers` (json, def 238407713080),
 `deposit_pct` (json = `{"new_customer":40,"repeat_customer":30}`, def 74254784856376, created
-2026-07-01). Most are unpopulated (pricing works off the 35% default with zero data entry;
+2026-07-01). Most are unpopulated (pricing works off the 50% default with zero data entry;
 overrides/ETAs/substitutes are optional polish).
 
 ## 6. Auth model
