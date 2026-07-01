@@ -220,11 +220,6 @@ app.post('/webhooks/shopify/inventory-levels', async (req, reply) => {
   return reply.code(200).send({ ok: true });
 });
 
-// ---- M2 placeholder ----
-app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) =>
-  reply.code(501).send({ error: 'draft-order capture lands in M2' })
-);
-
 // Build the snapshot + start the periodic rebuild once a token is available
 // (on boot if already installed, or right after the OAuth callback).
 let liveSyncStarted = false;
