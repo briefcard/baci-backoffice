@@ -25,6 +25,35 @@ function findVariant(variantId) {
   return null;
 }
 
+const FIND_CUSTOMER = `query($q: String!) { customers(first: 1, query: $q) { nodes { id } } }`;
+const CREATE_CUSTOMER = `mutation($input: CustomerInput!) {
+  customerCreate(input: $input) { customer { id } userErrors { field message } }
+}`;
+
+// Match an existing customer by email, else create one. Returns a customer gid or null.
+async function findOrCreateCustomer({ email, name, phone }) {
+  const e = String(email).trim();
+  const found = await shopifyGraphQL(FIND_CUSTOMER, { q: `email:${e}` });
+  if (found.customers?.nodes?.[0]) return found.customers.nodes[0].id;
+
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  const input = { email: e };
+  if (parts.length > 1) {
+    input.firstName = parts.slice(0, -1).join(' ');
+    input.lastName = parts[parts.length - 1];
+  } else if (parts.length === 1) {
+    input.firstName = parts[0];
+  }
+  if (phone) input.phone = String(phone).trim();
+
+  let res = await shopifyGraphQL(CREATE_CUSTOMER, { input });
+  if (res.customerCreate?.userErrors?.length && input.phone) {
+    delete input.phone; // phone formats are often rejected — retry without it
+    res = await shopifyGraphQL(CREATE_CUSTOMER, { input });
+  }
+  return res.customerCreate?.customer?.id || null;
+}
+
 export async function createDraftOrder(rep, body = {}) {
   const { lines, customer = {}, notes, repDiscountPct } = body;
   const discountPct = cache.config?.discountPct ?? 35;
@@ -59,8 +88,18 @@ export async function createDraftOrder(rep, body = {}) {
   if (customer.phone) customAttributes.push({ key: 'Phone', value: String(customer.phone) });
 
   const input = { lineItems, note: notes || '', tags, customAttributes };
-  if (customer.email) input.email = String(customer.email).trim();
   if (customer.phone) input.phone = String(customer.phone).trim();
+  if (customer.email) {
+    // Match an existing customer (dedupe) or create one; fall back to email-on-draft if it fails.
+    let customerId = null;
+    try {
+      customerId = await findOrCreateCustomer(customer);
+    } catch (err) {
+      customerId = null;
+    }
+    if (customerId) input.purchasingEntity = { customerId };
+    else input.email = String(customer.email).trim();
+  }
 
   // Rep's volume discount, hard-capped by the order-size tier.
   const cap = maxAdditionalPct(subtotal, cache.config?.tiers || []);

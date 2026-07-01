@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import { cfg } from './config.js';
+import { cfg, scopesSatisfied } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
@@ -21,7 +21,7 @@ import {
 } from './auth.js';
 import crypto from 'node:crypto';
 import { pool, runMigrations } from './db.js';
-import { getToken, saveToken } from './tokens.js';
+import { getToken, saveToken, getGrantedScopes } from './tokens.js';
 import { buildInstallUrl, verifyOAuthHmac, exchangeToken, SHOP_RE } from './oauth.js';
 
 const app = Fastify({ logger: true });
@@ -46,7 +46,10 @@ app.addHook('onRequest', async (req, reply) => {
   const url = req.raw.url || '';
   if (!url.startsWith('/?')) return;
   const shop = new URLSearchParams(url.slice(2)).get('shop');
-  if (shop && SHOP_RE.test(shop) && !(await getToken(shop).catch(() => null))) {
+  if (!shop || !SHOP_RE.test(shop)) return;
+  const token = await getToken(shop).catch(() => null);
+  const granted = await getGrantedScopes(shop).catch(() => null);
+  if (!token || !scopesSatisfied(granted)) {
     return reply.redirect(`/auth/shopify/install?shop=${encodeURIComponent(shop)}`);
   }
 });
@@ -133,7 +136,11 @@ app.get('/auth/shopify/install', async (req, reply) => {
   if (!cfg.apiKey || !cfg.apiSecret) {
     return reply.code(500).send('SHOPIFY_API_KEY / SHOPIFY_API_SECRET not configured');
   }
-  if (await getToken(shop).catch(() => null)) return reply.redirect(cfg.appUrl); // already installed
+  const existing = await getToken(shop).catch(() => null);
+  const granted = await getGrantedScopes(shop).catch(() => null);
+  if (existing && scopesSatisfied(granted) && req.query?.reauth !== '1') {
+    return reply.redirect(cfg.appUrl); // already installed with all required scopes
+  }
   const state = crypto.randomBytes(16).toString('hex');
   reply.setCookie('oauth_state', state, {
     httpOnly: true,

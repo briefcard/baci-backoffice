@@ -70,7 +70,7 @@ export const cfg = {
   apiSecret: process.env.SHOPIFY_API_SECRET || '',
   scopes:
     process.env.SHOPIFY_SCOPES ||
-    'read_products,read_inventory,read_locations,read_draft_orders,write_draft_orders',
+    'read_products,read_inventory,read_locations,read_draft_orders,write_draft_orders,read_customers,write_customers',
 
   // Confirmed business settings (overridable via env)
   sellableLocationIds: (process.env.SELLABLE_LOCATION_IDS ||
@@ -104,6 +104,13 @@ export const cfg = {
 export const sellableNumericLocationIds = cfg.sellableLocationIds.map((g) =>
   String(g).split('/').pop()
 );
+
+// True when the granted OAuth scopes cover everything the app currently needs.
+export function scopesSatisfied(granted) {
+  if (!granted) return false;
+  const have = new Set(String(granted).split(',').map((s) => s.trim()).filter(Boolean));
+  return cfg.scopes.split(',').map((s) => s.trim()).filter(Boolean).every((s) => have.has(s));
+}
 
 export function assertShopifyConfigured() {
   if (!cfg.shopifyStore || !cfg.shopifyToken) {

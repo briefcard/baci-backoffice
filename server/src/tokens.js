@@ -4,6 +4,21 @@ import { cfg } from './config.js';
 import { pool, q } from './db.js';
 
 let cached = null;
+let cachedScope = null;
+
+// The OAuth scopes granted for the stored token (to detect when a re-auth is needed).
+export async function getGrantedScopes(shop = cfg.shopifyStore) {
+  if (cfg.shopifyToken) return cfg.scopes; // static token assumed to cover configured scopes
+  if (cachedScope != null) return cachedScope;
+  if (!pool) return null;
+  try {
+    const { rows } = await q('SELECT scope FROM shop_tokens WHERE shop = $1', [shop]);
+    cachedScope = rows[0]?.scope || '';
+    return cachedScope;
+  } catch {
+    return null;
+  }
+}
 
 export async function getToken(shop = cfg.shopifyStore) {
   if (cfg.shopifyToken) return cfg.shopifyToken; // static Admin API token, if provided
@@ -20,6 +35,7 @@ export async function getToken(shop = cfg.shopifyStore) {
 
 export async function saveToken(shop, accessToken, scope) {
   cached = accessToken;
+  cachedScope = scope || '';
   if (!pool) return;
   await q(
     `INSERT INTO shop_tokens (shop, access_token, scope, installed_at)
