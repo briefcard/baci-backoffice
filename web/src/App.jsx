@@ -171,7 +171,7 @@ function Shell() {
           <span>Review order · {money(cartSubtotal(cartItems), s.config?.currency || 'USD')}</span>
         </button>
       )}
-      {showCart && <Cart config={s.config} onClose={() => setShowCart(false)} />}
+      {showCart && <Cart config={s.config} availability={s.availability} onClose={() => setShowCart(false)} />}
     </div>
   );
 }

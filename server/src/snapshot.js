@@ -12,6 +12,7 @@ export const cache = {
   config: {
     discountPct: cfg.defaultDiscountPct,
     tiers: [],
+    depositPct: { new_customer: cfg.defaultDepositNewPct, repeat_customer: cfg.defaultDepositRepeatPct },
     lowThreshold: cfg.lowStockThreshold,
     currency: 'USD',
   },
@@ -68,6 +69,7 @@ async function loadConfig() {
     shop {
       pct: metafield(namespace: "b2b", key: "wholesale_discount_pct") { value }
       tiers: metafield(namespace: "b2b", key: "volume_discount_tiers") { value }
+      deposit: metafield(namespace: "b2b", key: "deposit_pct") { value }
     }
   }`);
   const pct = data.shop?.pct?.value;
@@ -77,9 +79,20 @@ async function loadConfig() {
   } catch {
     /* keep [] */
   }
+  let depositPct = { new_customer: cfg.defaultDepositNewPct, repeat_customer: cfg.defaultDepositRepeatPct };
+  try {
+    const d = JSON.parse(data.shop?.deposit?.value || '{}');
+    depositPct = {
+      new_customer: d.new_customer != null ? Number(d.new_customer) : depositPct.new_customer,
+      repeat_customer: d.repeat_customer != null ? Number(d.repeat_customer) : depositPct.repeat_customer,
+    };
+  } catch {
+    /* keep defaults */
+  }
   cache.config = {
     discountPct: pct != null ? Number(pct) : cfg.defaultDiscountPct,
     tiers,
+    depositPct,
     lowThreshold: cfg.lowStockThreshold,
     currency: 'USD',
   };
@@ -210,7 +223,12 @@ export function loadSeed() {
   if (!fs.existsSync(url)) return false;
   const seed = JSON.parse(fs.readFileSync(url, 'utf8'));
   cache.products = (seed.products || []).filter((p) => !/b2b/i.test(p.title || ''));
-  if (seed.config) cache.config = seed.config;
+  if (seed.config) {
+    cache.config = {
+      depositPct: { new_customer: cfg.defaultDepositNewPct, repeat_customer: cfg.defaultDepositRepeatPct },
+      ...seed.config,
+    };
+  }
   const availability = new Map();
   for (const p of cache.products) for (const v of p.variants) availability.set(v.id, v.available ?? 0);
   cache.availability = availability;

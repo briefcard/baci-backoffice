@@ -9,7 +9,8 @@ import { cfg, scopesSatisfied } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
-import { createDraftOrder } from './orders.js';
+import { createOrders } from './orders.js';
+import { searchCustomers } from './customers.js';
 import { addClient, clientCount } from './stream.js';
 import { verifyShopifyHmac, handleInventoryLevelUpdate } from './webhooks.js';
 import {
@@ -171,13 +172,28 @@ app.get('/auth/shopify/callback', async (req, reply) => {
 });
 
 // ---- Order capture ----
+// Returns up to two draft orders: `ready` (in-stock lines, fulfillable now) and `backorder`
+// (out-of-stock lines, flagged with the required deposit) — either may be null.
 app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) => {
   try {
-    const result = await createDraftOrder(req.rep, req.body || {});
+    const result = await createOrders(req.rep, req.body || {});
     return { ok: true, ...result };
   } catch (err) {
     req.log.error({ err }, 'draft order failed');
     return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+// ---- Customer lookup (so reps can pick an existing customer instead of retyping their info
+// and risking a duplicate Shopify customer record) ----
+app.get('/api/customers/search', { preHandler: requireAuth }, async (req, reply) => {
+  const q = String(req.query?.q || '').trim();
+  if (q.length < 2) return { customers: [] };
+  try {
+    return { customers: await searchCustomers(q) };
+  } catch (err) {
+    req.log.error({ err }, 'customer search failed');
+    return reply.code(500).send({ error: 'search failed' });
   }
 });
 

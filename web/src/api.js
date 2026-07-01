@@ -22,4 +22,5 @@ export const api = {
   requestLink: (email) => jpost('/api/auth/request', { email }),
   logout: () => jpost('/api/auth/logout'),
   createOrder: (payload) => jpost('/api/orders', payload),
+  searchCustomers: (q) => jget(`/api/customers/search?q=${encodeURIComponent(q)}`),
 };

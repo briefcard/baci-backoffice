@@ -1,9 +1,15 @@
-// Create a Shopify draft order from a rep's cart. Pricing is server-authoritative (from the
+// Create Shopify draft order(s) from a rep's cart. Pricing is server-authoritative (from the
 // live snapshot cache): each line gets a wholesale discount; the rep's capped volume discount
 // (if any) is applied at the order level. Rep identity is stamped on tags + custom attributes.
+//
+// A cart can mix items that are in stock now with items that aren't. Per line, we split the
+// requested quantity into a "ready" portion (covered by live stock) and a "backorder" portion
+// (the shortfall) and submit them as up to TWO separate draft orders: one fulfillable today,
+// and one flagged for a deposit — since the office needs to invoice/ship these independently.
 import { shopifyGraphQL } from './shopify.js';
 import { cache } from './snapshot.js';
 import { round2, maxAdditionalPct } from './domain.js';
+import { resolveCustomer } from './customers.js';
 
 const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
 
@@ -25,89 +31,50 @@ function findVariant(variantId) {
   return null;
 }
 
-const FIND_CUSTOMER = `query($q: String!) { customers(first: 1, query: $q) { nodes { id } } }`;
-const CREATE_CUSTOMER = `mutation($input: CustomerInput!) {
-  customerCreate(input: $input) { customer { id } userErrors { field message } }
-}`;
-
-// Match an existing customer by email, else create one. Returns a customer gid or null.
-async function findOrCreateCustomer({ email, name, phone }) {
-  const e = String(email).trim();
-  const found = await shopifyGraphQL(FIND_CUSTOMER, { q: `email:${e}` });
-  if (found.customers?.nodes?.[0]) return found.customers.nodes[0].id;
-
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  const input = { email: e };
-  if (parts.length > 1) {
-    input.firstName = parts.slice(0, -1).join(' ');
-    input.lastName = parts[parts.length - 1];
-  } else if (parts.length === 1) {
-    input.firstName = parts[0];
-  }
-  if (phone) input.phone = String(phone).trim();
-
-  let res = await shopifyGraphQL(CREATE_CUSTOMER, { input });
-  if (res.customerCreate?.userErrors?.length && input.phone) {
-    delete input.phone; // phone formats are often rejected — retry without it
-    res = await shopifyGraphQL(CREATE_CUSTOMER, { input });
-  }
-  return res.customerCreate?.customer?.id || null;
-}
-
-export async function createDraftOrder(rep, body = {}) {
-  const { lines, customer = {}, notes, repDiscountPct } = body;
-  const discountPct = cache.config?.discountPct ?? 35;
-
-  const lineItems = [];
-  let subtotal = 0;
+// Split each requested line by live stock into a "ready now" qty and a "backorder" (shortfall) qty.
+function splitLines(lines) {
+  const ready = [];
+  const backorder = [];
   for (const l of lines || []) {
     const v = findVariant(l.variantId);
     if (!v) continue;
     const qty = Math.max(1, Math.floor(Number(l.quantity) || 1));
+    const avail = Math.max(0, Math.floor(Number(v.available) || 0));
+    const readyQty = Math.min(avail, qty);
+    const backorderQty = qty - readyQty;
+    if (readyQty > 0) ready.push({ v, qty: readyQty });
+    if (backorderQty > 0) backorder.push({ v, qty: backorderQty });
+  }
+  return { ready, backorder };
+}
+
+// Price a set of {v, qty} entries at wholesale (override or global %). Returns Shopify line
+// items (with the per-line wholesale discount applied) plus the wholesale subtotal.
+function priceLines(entries, discountPct) {
+  let subtotal = 0;
+  const lineItems = entries.map(({ v, qty }) => {
     const retail = Number(v.retailPrice) || 0;
     const hasOverride = v.wholesaleOverride != null && v.wholesaleOverride !== '';
     const unit = hasOverride ? Number(v.wholesaleOverride) : round2(retail * (1 - discountPct / 100));
     subtotal += unit * qty;
     const discPct = retail > 0 ? clamp(round2((1 - unit / retail) * 100), 0, 100) : 0;
-    lineItems.push({
+    return {
       variantId: v.id,
       quantity: qty,
       appliedDiscount: { valueType: 'PERCENTAGE', value: discPct, title: 'Wholesale' },
-    });
+    };
+  });
+  return { lineItems, subtotal: round2(subtotal) };
+}
+
+async function submitDraftOrder({ lineItems, tags, customAttributes, note, customerId, customer, volumeDiscountPct }) {
+  const input = { lineItems, note: note || '', tags, customAttributes };
+  if (customer?.phone) input.phone = String(customer.phone).trim();
+  if (customerId) input.purchasingEntity = { customerId };
+  else if (customer?.email) input.email = String(customer.email).trim();
+  if (volumeDiscountPct > 0) {
+    input.appliedDiscount = { valueType: 'PERCENTAGE', value: round2(volumeDiscountPct), title: `Volume ${volumeDiscountPct}%` };
   }
-  if (lineItems.length === 0) throw new Error('No valid line items');
-  subtotal = round2(subtotal);
-
-  const repName = rep?.name || rep?.email || 'unknown';
-  const tags = ['b2b-app', `rep:${repName}`];
-  const customAttributes = [
-    { key: 'Sales rep', value: repName },
-    { key: 'Rep email', value: rep?.email || '' },
-  ];
-  if (customer.name) customAttributes.push({ key: 'Customer', value: String(customer.name) });
-  if (customer.phone) customAttributes.push({ key: 'Phone', value: String(customer.phone) });
-
-  const input = { lineItems, note: notes || '', tags, customAttributes };
-  if (customer.phone) input.phone = String(customer.phone).trim();
-  if (customer.email) {
-    // Match an existing customer (dedupe) or create one; fall back to email-on-draft if it fails.
-    let customerId = null;
-    try {
-      customerId = await findOrCreateCustomer(customer);
-    } catch (err) {
-      customerId = null;
-    }
-    if (customerId) input.purchasingEntity = { customerId };
-    else input.email = String(customer.email).trim();
-  }
-
-  // Rep's volume discount, hard-capped by the order-size tier.
-  const cap = maxAdditionalPct(subtotal, cache.config?.tiers || []);
-  const applied = clamp(Number(repDiscountPct) || 0, 0, cap);
-  if (applied > 0) {
-    input.appliedDiscount = { valueType: 'PERCENTAGE', value: round2(applied), title: `Volume ${applied}%` };
-  }
-
   const data = await shopifyGraphQL(DRAFT_ORDER_CREATE, { input });
   const r = data.draftOrderCreate;
   if (r.userErrors?.length) throw new Error(r.userErrors.map((e) => e.message).join('; '));
@@ -117,4 +84,83 @@ export async function createDraftOrder(rep, body = {}) {
     invoiceUrl: r.draftOrder.invoiceUrl,
     total: r.draftOrder.totalPriceSet?.presentmentMoney?.amount,
   };
+}
+
+export async function createOrders(rep, body = {}) {
+  const { lines, customer = {}, notes, repDiscountPct } = body;
+  const discountPct = cache.config?.discountPct ?? 35;
+
+  const { ready, backorder } = splitLines(lines);
+  if (ready.length === 0 && backorder.length === 0) throw new Error('No valid line items');
+
+  const { lineItems: readyItems, subtotal: readySubtotal } = priceLines(ready, discountPct);
+  const { lineItems: backItems, subtotal: backSubtotal } = priceLines(backorder, discountPct);
+  const totalSubtotal = round2(readySubtotal + backSubtotal);
+
+  // Resolve the customer once (shared across both draft orders); tags come back fresh from
+  // Shopify, never from the client, so the deposit tier can't be spoofed by the rep.
+  const { customerId, isRepeat } = await resolveCustomer(customer.id || customer.email ? customer : null);
+  const tiers = cache.config?.depositPct || { new_customer: 40, repeat_customer: 30 };
+  const depositPct = isRepeat ? Number(tiers.repeat_customer) : Number(tiers.new_customer);
+
+  // The volume-discount ladder is one deal-size negotiation lever; compute the cap off the
+  // COMBINED subtotal (ready + backorder) so splitting into two orders can't change the tier,
+  // then apply the same rep-chosen % to each resulting order's own subtotal.
+  const cap = maxAdditionalPct(totalSubtotal, cache.config?.tiers || []);
+  const applied = clamp(Number(repDiscountPct) || 0, 0, cap);
+
+  const repName = rep?.name || rep?.email || 'unknown';
+  const baseTags = ['b2b-app', `rep:${repName}`];
+  const baseAttrs = [
+    { key: 'Sales rep', value: repName },
+    { key: 'Rep email', value: rep?.email || '' },
+  ];
+  if (customer.name) baseAttrs.push({ key: 'Customer', value: String(customer.name) });
+  if (customer.phone) baseAttrs.push({ key: 'Phone', value: String(customer.phone) });
+
+  const result = { ready: null, backorder: null };
+
+  if (readyItems.length) {
+    result.ready = await submitDraftOrder({
+      lineItems: readyItems,
+      tags: [...baseTags, 'ready-to-ship'],
+      customAttributes: baseAttrs,
+      note: notes || '',
+      customerId,
+      customer,
+      volumeDiscountPct: applied,
+    });
+  }
+
+  if (backItems.length) {
+    const backAfterVolume = round2(backSubtotal * (1 - applied / 100));
+    const depositAmount = round2(backAfterVolume * (depositPct / 100));
+    const balanceAmount = round2(backAfterVolume - depositAmount);
+    const tierLabel = isRepeat ? 'Repeat (B2B-tagged)' : 'New customer';
+    const depositNote =
+      `BACKORDER — do not fulfill until stock arrives. ` +
+      `Deposit required: ${depositPct}% ($${depositAmount.toFixed(2)}) due now (${tierLabel}); ` +
+      `balance $${balanceAmount.toFixed(2)} due when items ship.`;
+
+    result.backorder = await submitDraftOrder({
+      lineItems: backItems,
+      tags: [...baseTags, 'backorder', 'deposit-required', `deposit-pct:${depositPct}`],
+      customAttributes: [
+        ...baseAttrs,
+        { key: 'Customer tier', value: tierLabel },
+        { key: 'Deposit required', value: `${depositPct}% ($${depositAmount.toFixed(2)})` },
+        { key: 'Balance due at fulfillment', value: `$${balanceAmount.toFixed(2)}` },
+      ],
+      note: notes ? `${notes}\n\n${depositNote}` : depositNote,
+      customerId,
+      customer,
+      volumeDiscountPct: applied,
+    });
+    result.backorder.depositPct = depositPct;
+    result.backorder.depositAmount = depositAmount;
+    result.backorder.balanceAmount = balanceAmount;
+    result.backorder.customerTier = tierLabel;
+  }
+
+  return result;
 }

@@ -1,6 +1,6 @@
 # Baci Milano — B2B Rep "Sales Floor" App · Handoff / Context Document
 
-_Last updated: 2026-06-30. Share this whole file with a new Claude thread to continue._
+_Last updated: 2026-07-01. Share this whole file with a new Claude thread to continue._
 
 ---
 
@@ -99,6 +99,26 @@ plus a Render Postgres. Shopify is the single source of truth.
   backordering. Read from Shopify's native **`incoming`** quantity at the Miami location.
   ASSUMPTION to confirm: incoming lands at Miami; if POs/transfers target another location,
   change `$loc` accordingly.
+- **Ready-vs-backorder order split (owner, 2026-07-01):** a cart with both in-stock and
+  out-of-stock quantity is submitted as **two separate Shopify draft orders** — a "ready to
+  ship" one (in-stock lines, full price) and a "backorder" one (the shortfall, deposit required)
+  — rather than one mixed order. Split is **per line**: if a rep orders 15 and only 8 are
+  available, 8 goes on the ready order and 7 on the backorder one. The volume-discount cap is
+  computed off the **combined** subtotal of both (so splitting can't change the tier), then the
+  same rep-chosen % is applied to each draft independently.
+- **Backorder deposit tiers (owner, 2026-07-01):** **40%** deposit for a **new customer**, **30%**
+  for a **repeat/B2B customer** — defined as a Shopify customer record carrying a tag matching
+  `/b2b/i` (owner tags trusted wholesale accounts "B2B" in Shopify Admin). Checked **server-side**
+  from the resolved customer's live tags — never trusted from the client, so a rep can't
+  influence their own deposit tier. If no customer is attached, defaults to the new-customer
+  (40%) tier. Stored in shop metafield `b2b.deposit_pct` (JSON, editable in Admin without a
+  redeploy — see §5). We do **not** attempt to make Shopify's draft-order total literally equal
+  the deposit (no negative custom line-item hacks); standard Shopify draft orders have no clean
+  partial-payment primitive. Instead the backorder draft order carries the *real* line items at
+  full wholesale price, tagged `backorder` + `deposit-required` + `deposit-pct:<n>`, with the
+  deposit %, deposit $, and balance $ stamped as **customAttributes** (visible on the order page)
+  and in the note — office/POS collects the deposit as a manual/custom-amount charge against that
+  draft, guided by those numbers.
 
 ## 5. Shopify metafields (all created live, namespace `b2b`)
 
@@ -106,8 +126,10 @@ Product-variant: `wholesale_price` (money, def 238377402680), `case_pack` (int, 
 `min_order_qty` (int, 238377468216), `restock_eta` (date, 238377500984).
 Product: `substitutes` (list.product_reference, 238377533752).
 Shop: `wholesale_discount_pct` (number_decimal = **35**, def 238407680312),
-`volume_discount_tiers` (json, def 238407713080). Most are unpopulated (pricing works off the
-35% default with zero data entry; overrides/ETAs/substitutes are optional polish).
+`volume_discount_tiers` (json, def 238407713080),
+`deposit_pct` (json = `{"new_customer":40,"repeat_customer":30}`, def 74254784856376, created
+2026-07-01). Most are unpopulated (pricing works off the 35% default with zero data entry;
+overrides/ETAs/substitutes are optional polish).
 
 ## 6. Auth model
 
@@ -136,6 +158,17 @@ Shop: `wholesale_discount_pct` (number_decimal = **35**, def 238407680312),
 - **Customer matching:** find existing customer by email (dedupe) or create; attach via
   `purchasingEntity.customerId`; graceful fallback to email-on-draft. (Needs the scope re-auth.)
 - **BackOrder:** reads `incoming` qty; card shows "+N incoming" and "BackOrder · ETA".
+- **Customer lookup (2026-07-01):** `CustomerPicker.jsx` — debounced search-as-you-type against
+  real Shopify customers (`GET /api/customers/search?q=`, name/email/phone), so a rep selects an
+  existing customer instead of retyping info and risking a duplicate. Falls back to a manual
+  "add new customer" form when there's no match. The picked customer's `id` is sent to
+  `/api/orders`; the server re-resolves it (or dedupes-by-email / creates, same as before) and
+  reads that customer's **live tags** itself — the deposit tier can't be spoofed by the client.
+- **Ready/backorder order split + deposit (2026-07-01):** `createOrders()` in `orders.js` (renamed
+  from `createDraftOrder`) splits each line by live stock, prices both groups, and submits up to
+  two draft orders. `Cart.jsx` shows the split live (as the rep builds the cart) with a deposit
+  preview box, defaulting to the 40% new-customer tier until a customer is picked. See §4 for the
+  full rule and §9 for why we didn't try to fake a deposit-sized total on the draft order itself.
 
 **Pending / not yet done:**
 - **The live sync has never successfully completed in production yet** — it's now unblocked by the
@@ -187,6 +220,37 @@ products). Root causes, ALL FIXED:
 
 Diagnosis tool: `/api/health.lastError` surfaces the exact sync error. Use it.
 
+## 9a. Using this app alongside Shopify POS (owner question, 2026-07-01)
+
+**Recommendation: don't build payment capture into this app — let it feed Shopify POS, don't
+replace it.** The two tools solve different problems and the handoff between them is already a
+first-class Shopify feature:
+
+- This app is the **quoting/lookup/cart-builder**: live stock, wholesale pricing, the OOS
+  playbook, offline capability, the volume-discount ladder, and now the ready/backorder split —
+  none of which POS knows how to do for this catalog. Its job ends at creating a draft order.
+- **Shopify POS has a native "Draft orders" screen** that lists/searches every draft order on the
+  shop (not just POS-created ones). A rep builds the cart on this PWA → creates the draft
+  order(s) → **any staff member with the POS app on a register/tablet at the booth can open that
+  exact draft order and check the customer out** (card swipe, tap, or cash), which converts it to
+  a real completed order and decrements inventory the normal Shopify way. That *is* the "actual
+  order-taking" step — we don't need to reimplement it.
+- For the **backorder/deposit** draft order specifically: POS can still open it, but standard
+  (non-Plus) Shopify draft orders have no built-in "charge X now, invoice the rest later"
+  primitive. Practical flow: staff opens the backorder draft in POS/Admin and takes a
+  **custom-amount payment** for just the deposit (the exact %, $, and balance are stamped on the
+  draft's tags/customAttributes/note by this app, so the number to charge is unambiguous) — then
+  either invoice the balance when the item ships, or complete the order for the full remaining
+  amount at that time.
+- **What we deliberately did NOT do:** build Stripe/Payments-API charge logic into this PWA, or
+  fake a deposit-sized total via a negative custom line item on the draft order. Both add
+  complexity/compliance surface for no real benefit — POS already has payment collection solved,
+  and a draft order's true total should reflect the real sale for accounting.
+- **Unverified — confirm once live:** whether POS's "Draft orders" list is scoped to a specific
+  register/location, and whether a draft order created with `purchasingEntity.customerId` but no
+  explicit location behaves as expected in POS at a tradeshow (vs. the online-only context this
+  API token operates in). Worth a dry run with the actual POS device before the first live event.
+
 ## 10. File map (server/src + web/src)
 
 - `server/src/config.js` — env config; `MATERIALS`, `MAIN_COLLECTIONS`, `scopes`, `scopesSatisfied()`,
@@ -194,22 +258,29 @@ Diagnosis tool: `/api/health.lastError` surfaces the exact sync error. Use it.
 - `server/src/snapshot.js` — `buildSnapshot()` (paginates products, Miami inventory available+incoming,
   materials/design/collections, B2B exclusion), `loadSeed()` (serves `seed-snapshot.json` when no
   token), `snapshotResponse()` (+ mainCollections), in-memory `cache`.
-- `server/src/orders.js` — `createDraftOrder(rep, body)`: wholesale line pricing, capped volume
-  discount, `findOrCreateCustomer()`, `draftOrderCreate`.
+- `server/src/orders.js` — `createOrders(rep, body)` (renamed from `createDraftOrder`, 2026-07-01):
+  splits lines into ready/backorder by live stock, prices both, computes the shared volume-discount
+  cap + the deposit tier, submits up to two `draftOrderCreate` calls. Returns `{ready, backorder}`.
+- `server/src/customers.js` (new, 2026-07-01) — `searchCustomers(q)`, `resolveCustomer(customer)`
+  (fetches fresh tags server-side; never trusts client-supplied tier info), `isRepeatCustomer(tags)`
+  (checks for a tag matching `/b2b/i`).
 - `server/src/oauth.js` — install URL, HMAC verify, code→token exchange. `SHOP_RE` regex.
 - `server/src/tokens.js` — token + granted-scope storage (Postgres `shop_tokens`, memory-cached);
   `getToken`, `getGrantedScopes`, `saveToken`.
-- `server/src/server.js` — Fastify app, all routes, onRequest OAuth entry hook, static serving,
-  `ensureLiveSync()`, boot.
+- `server/src/server.js` — Fastify app, all routes (incl. `/api/customers/search`), onRequest OAuth
+  entry hook, static serving, `ensureLiveSync()`, boot.
 - `server/src/domain.js` — pricing/availability/rank helpers (server copy).
 - `server/src/{auth,db,shopify,stream,webhooks}.js` — magic-link/password auth, pg pool + migrate,
   Admin GraphQL client (uses token from tokens.js), SSE broadcast, webhook HMAC + inventory handler.
 - `server/schema.sql` — reps, magic_links, sessions, order_audit, webhook_events, shop_tokens.
-- `web/src/App.jsx` — shell, login, search vs BrowseView, cart bar + Cart overlay.
-- `web/src/components/{BrowseView,ProductCard,Cart}.jsx` — browse filters, product card (+ AddControl,
-  stock, BackOrder), cart drawer.
+- `web/src/App.jsx` — shell, login, search vs BrowseView, cart bar + Cart overlay (passes
+  `s.availability` into `<Cart>` for the ready/backorder preview split).
+- `web/src/components/{BrowseView,ProductCard,Cart,CustomerPicker}.jsx` — browse filters, product
+  card (+ AddControl, stock, BackOrder), cart drawer (ready/backorder sections + deposit preview,
+  2026-07-01), customer search-or-add typeahead (2026-07-01, new file).
 - `web/src/{cart,sync,api,db,domain}.js` — cart store, sync engine (snapshot/SSE/offline), fetch
-  wrapper, Dexie, client domain mirror (`maxAdditionalPct`, `money`, `productRank`, etc.).
+  wrapper (+ `searchCustomers`), Dexie, client domain mirror (`maxAdditionalPct`, `money`,
+  `productRank`, etc.).
 - `web/vite.config.js` — PWA config incl. the critical `navigateFallbackDenylist`.
 - `render.yaml` — Blueprint (web service `baci-backoffice` + Postgres `baci-backoffice-db` + env).
 - `shopify.app.toml` — app config (scopes, redirect_urls, App URL, embedded=false,
@@ -253,6 +324,17 @@ Local uses NO service worker (Vite dev), which is why OAuth issues only appear i
   `briefcard` org.
 
 ## 14. Commit history (most recent first)
+
+**NOT YET COMMITTED (2026-07-01):** ready/backorder order split + deposit tiers + customer
+lookup (§4, §7, §9a above) — `server/src/customers.js` (new), `server/src/orders.js` (rewritten,
+`createDraftOrder`→`createOrders`), `server/src/server.js` (+`/api/customers/search`),
+`server/src/{config,snapshot}.js` (deposit config), `web/src/components/CustomerPicker.jsx` (new),
+`web/src/components/Cart.jsx` (rewritten), `web/src/{api,App}.jsx`, `web/src/styles.css`. Verified:
+`npm run build` (web) passes; server boots clean (no dup-route errors); `/api/health`,
+`/api/customers/search`, and `/api/orders` (empty/all-ready/all-backorder/mixed carts) all hit the
+expected code path against seed data (fails at the live Shopify call as expected — no token in
+this dev env). **Needs a real device/browser test with a live token before going live**, plus
+still has the pre-existing pending push from §8 below. Not committed — ask before committing.
 
 `ab04334` fix duplicate /api/orders route · `fd6905a` BackOrder (incoming qty) · `3441e07` customer
 matching + scope upgrade · `798551d` M2 order capture · `000dda6` materials fix · `5fe0abb` query
