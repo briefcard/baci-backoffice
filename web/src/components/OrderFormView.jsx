@@ -131,16 +131,21 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
               <h2>{s.title}</h2>
               <span className="muted small">CATALOGUE: {s.title.toUpperCase()}</span>
             </div>
-            {s.products.map((p) => (
-              <FormRow
-                key={p.id}
-                product={p}
-                availability={availability}
-                pct={pct}
-                currency={currency}
-                qty={qty}
-                setQ={setQ}
-              />
+            {(s.groups || [{ type: null, products: s.products }]).map((g) => (
+              <div key={g.type || 'all'}>
+                {g.type && <div className="form-group-head">{g.type}</div>}
+                {g.products.map((p) => (
+                  <FormRow
+                    key={p.id}
+                    product={p}
+                    availability={availability}
+                    pct={pct}
+                    currency={currency}
+                    qty={qty}
+                    setQ={setQ}
+                  />
+                ))}
+              </div>
             ))}
           </section>
         ))}
@@ -193,7 +198,10 @@ function FormRow({ product, availability, pct, currency, qty, setQ }) {
                   {v.title && v.title !== 'Default Title' && <span className="fvtitle">{v.title}</span>}
                   {out && <span className="flater">ships later</span>}
                 </div>
-                <span className="fprice">{money(unitWholesalePrice(v, pct), currency)}</span>
+                <span className="fpricewrap">
+                  <span className="fprice">{money(unitWholesalePrice(v, pct), currency)}</span>
+                  <span className="fmsrp">MSRP {money(v.retailPrice, currency)}</span>
+                </span>
                 <input
                   className="fqty"
                   type="number"

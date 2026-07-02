@@ -3,12 +3,12 @@ import * as sync from './sync.js';
 import { api } from './api.js';
 import { ProductCard } from './components/ProductCard.jsx';
 import { BrowseView } from './components/BrowseView.jsx';
-import { productRank, money, unitWholesalePrice } from './domain.js';
+import { productRank, money, unitWholesalePrice, splitByAvailability } from './domain.js';
 import { Cart } from './components/Cart.jsx';
 import { CheckoutView } from './components/CheckoutView.jsx';
 import { OrderFormView } from './components/OrderFormView.jsx';
 import { PendingView } from './components/PendingView.jsx';
-import { PrintOrderForm } from './components/PrintOrderForm.jsx';
+import { PrintDoc, BlankFormDoc, OrderCopyDoc } from './components/PrintDocs.jsx';
 import { cart, useCart, cartCount, cartSubtotal } from './cart.js';
 
 function useSync() {
@@ -172,7 +172,7 @@ function Shell({ me }) {
   const [view, setView] = useState('browse'); // browse | pending | checkout | form (kiosk)
   const [pending, setPending] = useState(null);
   const [reviewing, setReviewing] = useState(null); // { pendingId, customer, notes }
-  const [printing, setPrinting] = useState(false);
+  const [printing, setPrinting] = useState(null); // null | 'blank' | { order } (copy of current cart)
   const cartItems = useCart();
   const isCaptain = !!me?.isCaptain;
 
@@ -263,6 +263,7 @@ function Shell({ me }) {
         sku: variant.sku,
         image: product.image,
         unit: unitWholesalePrice(variant, pct),
+        msrp: variant.retailPrice,
         qty: Number(l.quantity) || 1,
       });
     }
@@ -315,7 +316,17 @@ function Shell({ me }) {
         <div className="hrow">
           <strong>Baci Reps</strong>
           <span className="badges">
-            <button className="hbtn" onClick={() => setPrinting(true)} title="Print the order form">
+            <button
+              className="hbtn"
+              title={cartItems.length ? 'Print a copy of the current order' : 'Print the blank order form'}
+              onClick={() =>
+                setPrinting(
+                  cartItems.length
+                    ? { order: { lines: splitByAvailability(cartItems, s.availability), customer: null, notes: '', appliedPct: 0, result: null } }
+                    : 'blank'
+                )
+              }
+            >
               🖨
             </button>
             <button className="hbtn" onClick={() => setView('form')} title="Hand the tablet to a customer">
@@ -396,7 +407,16 @@ function Shell({ me }) {
           onClose={closeCart}
         />
       )}
-      {printing && <PrintOrderForm snapshot={s.snapshot} config={s.config} onDone={() => setPrinting(false)} />}
+      {printing === 'blank' && (
+        <PrintDoc title="Blank order form" onClose={() => setPrinting(null)}>
+          <BlankFormDoc snapshot={s.snapshot} config={s.config} />
+        </PrintDoc>
+      )}
+      {printing && printing !== 'blank' && (
+        <PrintDoc title="Order copy" onClose={() => setPrinting(null)}>
+          <OrderCopyDoc order={printing.order} currency={s.config?.currency || 'USD'} />
+        </PrintDoc>
+      )}
     </div>
   );
 }

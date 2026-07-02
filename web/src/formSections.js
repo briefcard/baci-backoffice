@@ -14,13 +14,23 @@ export function buildFormSections(products, formCollections) {
     const home = (p.collections || []).map((c) => byHandle.get(c.handle)).find(Boolean);
     (home || rest).products.push(p);
   }
-  for (const s of sections) {
-    s.products.sort(
-      (a, b) => (a.productType || '').localeCompare(b.productType || '') || a.title.localeCompare(b.title)
-    );
-  }
-  rest.products.sort((a, b) => a.title.localeCompare(b.title));
-  return [...sections, rest].filter((s) => s.products.length > 0);
+
+  // Sub-group each collection by product type (Cups, Plates, Placemats…) so like items sit
+  // together, exactly as buyers scan the paper catalogue. Untyped items land in "Other".
+  const withGroups = (s) => {
+    const byType = new Map();
+    for (const p of s.products) {
+      const t = p.productType || 'Other';
+      if (!byType.has(t)) byType.set(t, []);
+      byType.get(t).push(p);
+    }
+    const groups = [...byType.entries()]
+      .sort((a, b) => (a[0] === 'Other') - (b[0] === 'Other') || a[0].localeCompare(b[0]))
+      .map(([type, list]) => ({ type, products: list.sort((a, b) => a.title.localeCompare(b.title)) }));
+    return { ...s, groups, products: groups.flatMap((g) => g.products) };
+  };
+
+  return [...sections, rest].filter((s) => s.products.length > 0).map(withGroups);
 }
 
 // --- Offline submission queue (kiosk tablets on spotty venue Wi-Fi) ---

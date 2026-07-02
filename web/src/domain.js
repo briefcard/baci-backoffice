@@ -43,3 +43,18 @@ export function maxAdditionalPct(wholesaleSubtotal, tiers) {
 export function money(n, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(n) || 0);
 }
+
+// Split cart lines by live stock into "ready now" and "backorder" (shortfall) portions —
+// client mirror of the server's split, shared by the cart review and the printable order copy.
+export function splitByAvailability(items, availability) {
+  const ready = [];
+  const backorder = [];
+  for (const i of items || []) {
+    const avail = Math.max(0, Math.floor(Number(availability?.[i.variantId] ?? 0)));
+    const readyQty = Math.min(avail, i.qty);
+    const backorderQty = i.qty - readyQty;
+    if (readyQty > 0) ready.push({ ...i, qty: readyQty });
+    if (backorderQty > 0) backorder.push({ ...i, qty: backorderQty });
+  }
+  return { ready, backorder };
+}

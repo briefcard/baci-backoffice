@@ -291,11 +291,27 @@ collection automatically on the next snapshot sync.
   runs the standard `createOrders` pipeline (ready/backorder split + deposits + captain queue)
   and closes the row (audit: handled_by/at + draft names). Dismiss also audited; conflict-guarded
   (409 if already handled). Confirm failures leave the row pending (retry-safe).
-- **Print:** 🖨 button renders `PrintOrderForm` (cover page with company-info blanks like the
-  paper form's page 1, then per-collection tables: photo, item, SKU, unit price, blank qty box)
-  and calls `window.print()` — print it the morning of a show and it's automatically current.
-- Files: `server/src/pending.js`, `web/src/components/{OrderFormView,PendingView,PrintOrderForm}.jsx`,
-  `web/src/formSections.js` (shared section builder + offline submit queue), routes in server.js,
+- **MSRP + type subgroups (2026-07-02):** every price on the form (digital + print) shows the
+  wholesale unit AND the MSRP (struck-through on screen, its own column in print); within each
+  collection, products are sub-grouped by product type (Pitchers, Water Glasses, Mugs…) via
+  `buildFormSections` groups.
+- **Print / PDF (REBUILT 2026-07-02 — `PrintDocs.jsx`, old auto-print `PrintOrderForm` deleted):**
+  printing now opens a full-screen PREVIEW overlay (portaled to `<body>`, outside the app shell —
+  this fixed the broken/truncated print preview) with an explicit "🖨 Print / Save as PDF" button;
+  in print media the app root is hidden so the preview IS the printed document. Two documents:
+  (1) **Blank order form** — header 🖨 with an EMPTY cart: cover page with fill-in blanks
+  (Customer / Delivery / Order blocks like the paper form's page 1) + full catalog with MSRP,
+  wholesale, and empty qty boxes. (2) **Order copy** (the client-shareable PDF of a drafted
+  order): header 🖨 with items in the cart → "DRAFT — pending confirmation" copy of the current
+  cart; after order creation the Cart done screen's "Print / save PDF for customer" → full
+  summary with draft order refs, ready/backorder sections, MSRP/unit/line totals, volume
+  discount, deposit-due-now + balance terms. Save as PDF from the browser dialog and email/text
+  it to the customer. Cart lines now carry `msrp` (added at cart.add in ProductCard + pending
+  seeding). Verified in-browser via preview: blank form + order copy render correctly, digital
+  form shows $70.00/MSRP $140.00, customer mode still computes no totals.
+- Files: `server/src/pending.js`, `web/src/components/{OrderFormView,PendingView,PrintDocs}.jsx`,
+  `web/src/formSections.js` (section+type-group builder + offline submit queue),
+  `splitByAvailability` in web/src/domain.js (shared cart/print stock split), routes in server.js,
   `ORDER_FORM_COLLECTION_HANDLES`/`orderFormCode` in config.js, Dexie v2 `queuedForms`.
 
 **Checkout-captain queue (BUILT 2026-07-01, in the app):** a dedicated **Checkout** tab in this

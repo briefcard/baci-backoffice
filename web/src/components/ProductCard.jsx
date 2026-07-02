@@ -114,6 +114,7 @@ function AddControl({ variant, product, unit, inCart }) {
             sku: variant.sku,
             image: product.image,
             unit,
+            msrp: variant.retailPrice,
           })
         }
       >

@@ -1,23 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { cart, useCart } from '../cart.js';
-import { money, maxAdditionalPct, round2 } from '../domain.js';
+import { money, maxAdditionalPct, round2, splitByAvailability } from '../domain.js';
 import { api } from '../api.js';
 import { CustomerPicker } from './CustomerPicker.jsx';
-
-// Split each cart line by live stock into a "ready now" qty and a "backorder" (shortfall) qty —
-// mirrors the server's split so the rep sees, before submitting, what ships today vs later.
-function splitItems(items, availability) {
-  const ready = [];
-  const backorder = [];
-  for (const i of items) {
-    const avail = Math.max(0, Math.floor(Number(availability?.[i.variantId] ?? 0)));
-    const readyQty = Math.min(avail, i.qty);
-    const backorderQty = i.qty - readyQty;
-    if (readyQty > 0) ready.push({ ...i, qty: readyQty });
-    if (backorderQty > 0) backorder.push({ ...i, qty: backorderQty });
-  }
-  return { ready, backorder };
-}
+import { PrintDoc, OrderCopyDoc } from './PrintDocs.jsx';
 
 const sum = (its) => its.reduce((s, i) => s + i.unit * i.qty, 0);
 
@@ -29,7 +15,7 @@ export function Cart({ config, availability, onClose, pendingId, initialCustomer
   const tiers = config?.tiers || [];
   const depositTiers = config?.depositPct || { new_customer: 40, repeat_customer: 30 };
 
-  const { ready, backorder } = useMemo(() => splitItems(items, availability), [items, availability]);
+  const { ready, backorder } = useMemo(() => splitByAvailability(items, availability), [items, availability]);
   const readySubtotal = round2(sum(ready));
   const backorderSubtotal = round2(sum(backorder));
   const combinedSubtotal = round2(readySubtotal + backorderSubtotal);
@@ -42,6 +28,8 @@ export function Cart({ config, availability, onClose, pendingId, initialCustomer
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState(null);
+  const [doneCtx, setDoneCtx] = useState(null); // snapshot of the order for the printable copy
+  const [showPrint, setShowPrint] = useState(false);
 
   const applied = Math.min(Math.max(Number(disc) || 0, 0), cap);
   const readyTotal = readySubtotal * (1 - applied / 100);
@@ -65,6 +53,14 @@ export function Cart({ config, availability, onClose, pendingId, initialCustomer
         cardOnFile,
       };
       const res = pendingId ? await api.confirmPending(pendingId, payload) : await api.createOrder(payload);
+      // Snapshot everything the printable client copy needs BEFORE the cart is cleared.
+      setDoneCtx({
+        lines: { ready, backorder },
+        customer: customer ? { name: customer.name, email: customer.email, phone: customer.phone } : null,
+        notes,
+        appliedPct: applied,
+        result: res,
+      });
       setDone(res);
       cart.clear();
     } catch (e) {
@@ -105,11 +101,21 @@ export function Cart({ config, availability, onClose, pendingId, initialCustomer
                 )}
               </div>
             )}
+            {doneCtx && (
+              <button className="secondary" onClick={() => setShowPrint(true)}>
+                🖨 Print / save PDF for customer
+              </button>
+            )}
             <button className="primary" onClick={onClose}>
               Done
             </button>
           </div>
         </div>
+        {showPrint && doneCtx && (
+          <PrintDoc title="Order copy" onClose={() => setShowPrint(false)}>
+            <OrderCopyDoc order={doneCtx} currency={currency} />
+          </PrintDoc>
+        )}
       </div>
     );
   }

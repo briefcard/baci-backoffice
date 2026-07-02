@@ -1,0 +1,276 @@
+import React from 'react';
+import { createPortal } from 'react-dom';
+import { unitWholesalePrice, money, round2 } from '../domain.js';
+import { buildFormSections } from '../formSections.js';
+
+// Printable documents, rendered as a full-screen PREVIEW overlay (portaled to <body>, outside
+// the app shell) with an explicit Print / Save-as-PDF button. What you see in the preview is
+// exactly what prints: in print media the app root is hidden and only this document renders.
+// This replaces the old auto-window.print() approach, which fought the PWA's mobile layout.
+//
+// Two documents share the wrapper:
+//   BlankFormDoc — the empty order form: cover page with fill-in blanks (like the paper form's
+//                  page 1) + the full catalog with MSRP, wholesale unit price, and empty qty boxes.
+//   OrderCopyDoc — a client-shareable copy of a drafted order (lines, totals, deposit terms).
+
+export function PrintDoc({ title, children, onClose }) {
+  return createPortal(
+    <div className="printdoc">
+      <div className="printdoc-toolbar">
+        <strong>{title}</strong>
+        <span>
+          <button className="primary small" onClick={() => window.print()}>
+            🖨 Print / Save as PDF
+          </button>
+          <button className="pd-close" onClick={onClose}>
+            ✕ Close
+          </button>
+        </span>
+      </div>
+      <div className="printdoc-pages">{children}</div>
+    </div>,
+    document.body
+  );
+}
+
+function DocHeader({ subtitle }) {
+  return (
+    <div className="pf-brand">
+      <h1>BACI MILANO</h1>
+      <div className="pf-sub">{subtitle}</div>
+      <div className="pf-co">
+        Baci Milano USA, LLC · 1835 E Hallandale Beach Blvd STE 834, Hallandale Beach, FL 33009
+        <br />
+        305.600.0099 · info@bacimilanousa.com · www.bacimilanousa.com
+      </div>
+    </div>
+  );
+}
+
+// ---- The empty order form (cover page + catalog with blank qty boxes) ----
+
+// Cover-page blanks mirroring the paper form's first page (company / delivery / terms blocks).
+const COVER_COMPANY = ['COMPANY NAME', 'ADDRESS', 'CITY', 'STATE / ZIP', 'PHONE', 'E-MAIL', 'BUYER NAME'];
+const COVER_DELIVERY = ['DELIVERY ADDRESS', 'CITY', 'STATE / ZIP', 'PHONE'];
+const COVER_TERMS = ['DELIVERY DATE', 'PAYMENT', 'SALES REP', 'NOTE', ''];
+
+function CoverBlock({ heading, labels }) {
+  return (
+    <div className="pf-block">
+      <div className="pf-block-head">{heading}</div>
+      {labels.map((label, i) => (
+        <div className="pf-field" key={`${label}-${i}`}>
+          <span>{label}</span>
+          <span className="pf-line" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function BlankFormDoc({ snapshot, config }) {
+  const currency = config?.currency || 'USD';
+  const pct = config?.discountPct ?? 50;
+  const sections = buildFormSections(snapshot?.products || [], config?.formCollections || []);
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  return (
+    <>
+      <div className="pf-cover">
+        <DocHeader subtitle="CURATED U.S. SELECTIONS · ORDER FORM" />
+        <div className="pf-date">Printed {today} — wholesale pricing current as of print date</div>
+        <CoverBlock heading="CUSTOMER" labels={COVER_COMPANY} />
+        <CoverBlock heading="DELIVERY (if different)" labels={COVER_DELIVERY} />
+        <CoverBlock heading="ORDER" labels={COVER_TERMS} />
+      </div>
+
+      {sections.map((s) => (
+        <section className="pf-section" key={s.handle}>
+          <div className="pf-section-head">
+            <h2>{s.title}</h2>
+            <span>CATALOGUE: {s.title.toUpperCase()}</span>
+          </div>
+          {s.groups.map((g) => (
+            <div key={g.type}>
+              <div className="pf-group-head">{g.type}</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th className="pf-th-img" />
+                    <th>Item</th>
+                    <th className="pf-th-sku">SKU</th>
+                    <th className="pf-th-price">MSRP</th>
+                    <th className="pf-th-price">Wholesale</th>
+                    <th className="pf-th-qty">Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.products.map((p) =>
+                    p.variants.map((v, i) => (
+                      <tr key={v.id}>
+                        <td className="pf-td-img">{i === 0 && p.image ? <img src={p.image} alt="" /> : null}</td>
+                        <td>
+                          <div className="pf-item">
+                            {p.title}
+                            {v.title && v.title !== 'Default Title' ? ` — ${v.title}` : ''}
+                          </div>
+                          <div className="pf-type">{(p.materials || [])[0] || ''}</div>
+                        </td>
+                        <td className="pf-td-sku">{v.sku || '—'}</td>
+                        <td className="pf-td-price pf-msrp">{money(v.retailPrice, currency)}</td>
+                        <td className="pf-td-price">{money(unitWholesalePrice(v, pct), currency)}</td>
+                        <td className="pf-td-qty">
+                          <span className="pf-qtybox" />
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </section>
+      ))}
+
+      <div className="pf-foot">
+        Wholesale order form — pricing per unit. Totals, availability, and volume pricing are
+        confirmed by your Baci Milano sales rep.
+      </div>
+    </>
+  );
+}
+
+// ---- A client-shareable copy of a drafted order ----
+// `order` = { lines: { ready, backorder }, customer, notes, appliedPct, result }
+//   result (when submitted) = createOrders response: { ready: {name…}, backorder: {name, depositPct,
+//   depositAmount, balanceAmount, customerTier…} } — server-authoritative deposit figures win.
+
+function LinesTable({ lines, currency }) {
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th className="pf-th-sku">SKU</th>
+          <th className="pf-th-qty">Qty</th>
+          <th className="pf-th-price">MSRP</th>
+          <th className="pf-th-price">Unit</th>
+          <th className="pf-th-price">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map((l) => (
+          <tr key={l.variantId}>
+            <td>
+              <div className="pf-item">{l.title}</div>
+            </td>
+            <td className="pf-td-sku">{l.sku || '—'}</td>
+            <td className="pf-td-qty pf-qty-num">{l.qty}</td>
+            <td className="pf-td-price pf-msrp">{l.msrp != null ? money(l.msrp, currency) : '—'}</td>
+            <td className="pf-td-price">{money(l.unit, currency)}</td>
+            <td className="pf-td-price">{money(round2(l.unit * l.qty), currency)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function OrderCopyDoc({ order, currency = 'USD' }) {
+  const { lines, customer, notes, appliedPct = 0, result } = order;
+  const ready = lines?.ready || [];
+  const backorder = lines?.backorder || [];
+  const sum = (its) => round2(its.reduce((s, i) => s + i.unit * i.qty, 0));
+  const readySub = sum(ready);
+  const backSub = sum(backorder);
+  const subtotal = round2(readySub + backSub);
+  const afterVolume = round2(subtotal * (1 - appliedPct / 100));
+  const backAfterVolume = round2(backSub * (1 - appliedPct / 100));
+  const depositPct = result?.backorder?.depositPct;
+  const depositAmount = result?.backorder?.depositAmount ?? (depositPct != null ? round2(backAfterVolume * (depositPct / 100)) : null);
+  const balanceAmount = result?.backorder?.balanceAmount ?? (depositAmount != null ? round2(backAfterVolume - depositAmount) : null);
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const submitted = !!(result?.ready || result?.backorder);
+
+  return (
+    <>
+      <div className="pf-copyhead">
+        <DocHeader subtitle={submitted ? 'WHOLESALE ORDER SUMMARY' : 'WHOLESALE ORDER — DRAFT'} />
+        <div className="pf-meta">
+          <div>{today}</div>
+          {result?.ready?.name && <div>Order ref: {result.ready.name} (ready to ship)</div>}
+          {result?.backorder?.name && <div>Order ref: {result.backorder.name} (backorder)</div>}
+          {!submitted && <div className="pf-draft-note">Pending confirmation — not yet an order</div>}
+        </div>
+        {(customer?.name || customer?.email || customer?.phone) && (
+          <div className="pf-custblock">
+            <div className="pf-block-head">PREPARED FOR</div>
+            {customer.name && <div>{customer.name}</div>}
+            {customer.email && <div>{customer.email}</div>}
+            {customer.phone && <div>{customer.phone}</div>}
+          </div>
+        )}
+      </div>
+
+      {ready.length > 0 && (
+        <section className="pf-section">
+          <div className="pf-section-head">
+            <h2>Ready to ship</h2>
+          </div>
+          <LinesTable lines={ready} currency={currency} />
+        </section>
+      )}
+
+      {backorder.length > 0 && (
+        <section className="pf-section">
+          <div className="pf-section-head">
+            <h2>Backorder — ships when stock arrives</h2>
+          </div>
+          <LinesTable lines={backorder} currency={currency} />
+        </section>
+      )}
+
+      <div className="pf-totals">
+        <div>
+          <span>Subtotal</span>
+          <strong>{money(subtotal, currency)}</strong>
+        </div>
+        {appliedPct > 0 && (
+          <div>
+            <span>Volume discount ({appliedPct}%)</span>
+            <strong>−{money(round2(subtotal - afterVolume), currency)}</strong>
+          </div>
+        )}
+        <div className="pf-grand">
+          <span>Total</span>
+          <strong>{money(afterVolume, currency)}</strong>
+        </div>
+        {backorder.length > 0 && depositAmount != null && (
+          <>
+            <div>
+              <span>
+                Backorder deposit due now ({depositPct}%{result?.backorder?.customerTier ? ` · ${result.backorder.customerTier}` : ''})
+              </span>
+              <strong>{money(depositAmount, currency)}</strong>
+            </div>
+            <div>
+              <span>Balance due when backorder ships</span>
+              <strong>{money(balanceAmount, currency)}</strong>
+            </div>
+          </>
+        )}
+      </div>
+
+      {notes && (
+        <div className="pf-notes">
+          <div className="pf-block-head">NOTES</div>
+          <div>{notes}</div>
+        </div>
+      )}
+
+      <div className="pf-foot">
+        Thank you! Questions or changes — your Baci Milano sales rep · 305.600.0099 · info@bacimilanousa.com
+      </div>
+    </>
+  );
+}
