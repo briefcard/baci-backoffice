@@ -253,3 +253,81 @@ main { padding: 14px 14px 64px; display: grid; gap: 12px; }
 .primary.small { font-size: 14px; padding: 10px 12px; }
 
 main { padding-bottom: 96px; }
+
+/* Header quick buttons (print / hand-to-customer form) */
+.hbtn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 5px 9px; font-size: 13px; font-weight: 700; cursor: pointer; color: var(--ink); }
+
+/* ---- Customer order form (kiosk + QR) ---- */
+.form-app { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+.form-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; }
+.form-brand { display: grid; }
+.form-brand strong { font-size: 20px; letter-spacing: .12em; }
+.form-brand span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.form-exit { border: none; background: transparent; font-size: 18px; opacity: .35; padding: 8px; cursor: pointer; }
+.form-sticky { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 6px 12px 8px; border-bottom: 1px solid var(--line); }
+.form-nav { display: flex; gap: 6px; overflow-x: auto; padding-top: 8px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.form-nav .chip { flex-shrink: 0; }
+.form-main { flex: 1; padding: 0 12px; }
+.form-footer-space { height: 110px; }
+.form-section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 2px 8px; border-bottom: 2px solid var(--ink); padding-bottom: 6px; }
+.form-section-head h2 { margin: 0; font-size: 22px; }
+.frow { display: flex; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 8px; }
+.fimg { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: #f2f2f2; }
+.fbody { flex: 1; min-width: 0; }
+.ftitle { font-weight: 700; font-size: 15px; }
+.fmeta { margin: 1px 0 6px; }
+.fvars { display: grid; gap: 6px; }
+.fvar { display: flex; align-items: center; gap: 8px; }
+.fvar.isout { opacity: .75; }
+.fvar-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fsku { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+.fvtitle { font-size: 13px; }
+.flater { font-size: 11px; background: #fff4d6; color: var(--low); border-radius: 999px; padding: 2px 8px; font-weight: 700; }
+.fprice { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fqty { width: 64px; padding: 10px 6px; text-align: center; font-size: 17px; font-weight: 700; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; }
+.fqty:focus { border-color: var(--ink); outline: none; }
+.form-bar { position: fixed; }
+.form-done { flex: 1; display: grid; place-content: center; text-align: center; gap: 12px; padding: 24px; }
+.form-done .link { margin-top: 18px; opacity: .5; }
+.form-note { padding: 8px 2px; }
+.exit-gate input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; margin: 10px 0; }
+
+/* ---- Pending pool (rep view) ---- */
+.pending { padding: 12px; display: grid; gap: 10px; }
+.pend-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.pend-row.is-done { opacity: .6; }
+.pend-main { min-width: 0; display: grid; gap: 3px; }
+.pend-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pend-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
+
+/* ---- Printable order form ---- */
+.print-form { display: none; }
+@media print {
+  .app header, .app main, .app .cartbar, .app .cart-overlay { display: none !important; }
+  .print-form { display: block; font-size: 10pt; color: #000; }
+  .pf-cover { page-break-after: always; padding-top: 40pt; }
+  .pf-brand h1 { font-size: 26pt; letter-spacing: .18em; margin: 0; }
+  .pf-sub { font-size: 11pt; letter-spacing: .1em; margin: 4pt 0 10pt; }
+  .pf-co { font-size: 9pt; color: #333; line-height: 1.5; }
+  .pf-date { font-size: 8pt; color: #666; margin-top: 6pt; }
+  .pf-fields { margin-top: 28pt; display: grid; gap: 14pt; }
+  .pf-field { display: flex; align-items: flex-end; gap: 8pt; font-size: 9pt; letter-spacing: .05em; }
+  .pf-field span:first-child { flex-shrink: 0; width: 110pt; font-weight: 700; }
+  .pf-line { flex: 1; border-bottom: 1px dotted #555; height: 12pt; }
+  .pf-section { page-break-inside: auto; margin-bottom: 14pt; }
+  .pf-section-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2pt solid #000; margin-bottom: 4pt; page-break-after: avoid; }
+  .pf-section-head h2 { font-size: 15pt; margin: 0 0 2pt; }
+  .pf-section-head span { font-size: 7.5pt; letter-spacing: .08em; color: #444; }
+  .print-form table { width: 100%; border-collapse: collapse; }
+  .print-form th { text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; color: #555; padding: 3pt 4pt; border-bottom: .75pt solid #999; }
+  .print-form td { padding: 4pt; border-bottom: .5pt solid #ddd; vertical-align: middle; }
+  .print-form tr { page-break-inside: avoid; }
+  .pf-td-img img { width: 34pt; height: 34pt; object-fit: cover; }
+  .pf-item { font-weight: 700; font-size: 9.5pt; }
+  .pf-type { font-size: 7.5pt; color: #666; }
+  .pf-td-sku { font-family: ui-monospace, monospace; font-size: 8pt; white-space: nowrap; }
+  .pf-td-price { font-weight: 700; white-space: nowrap; }
+  .pf-th-qty, .pf-td-qty { text-align: center; }
+  .pf-qtybox { display: inline-block; width: 34pt; height: 20pt; border: 1pt solid #000; border-radius: 2pt; }
+  .pf-foot { margin-top: 16pt; font-size: 8pt; color: #555; text-align: center; }
+}

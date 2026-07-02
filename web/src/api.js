@@ -25,4 +25,11 @@ export const api = {
   searchCustomers: (q) => jget(`/api/customers/search?q=${encodeURIComponent(q)}`),
   upsertCustomer: (profile) => jpost('/api/customers', profile),
   checkoutQueue: () => jget('/api/checkout/queue'),
+  // Customer order form: kiosk submits under the rep session; QR uses the per-event code.
+  submitOrderForm: (payload) => jpost('/api/order-forms', payload),
+  publicFormCatalog: (code) => jget(`/api/form/catalog?code=${encodeURIComponent(code)}`),
+  publicFormSubmit: (code, payload) => jpost(`/api/form/submit?code=${encodeURIComponent(code)}`, payload),
+  pendingList: () => jget('/api/pending'),
+  confirmPending: (id, payload) => jpost(`/api/pending/${encodeURIComponent(id)}/confirm`, payload),
+  dismissPending: (id) => jpost(`/api/pending/${encodeURIComponent(id)}/dismiss`),
 };

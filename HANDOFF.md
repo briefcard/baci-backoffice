@@ -269,6 +269,35 @@ first-class Shopify feature:
   explicit location behaves as expected in POS at a tradeshow (vs. the online-only context this
   API token operates in). Worth a dry run with the actual POS device before the first live event.
 
+**Customer order form (BUILT 2026-07-02):** the digitized version of the paper tradeshow order
+form (`ORDER_FORM_US_DRAFT_3.pdf` — sections per collection in the printed catalogue's order:
+Mamma Mia → Zodiac → Joke → Crystal Touch → Baroque&Rock → Aqua → Sagrada Familia → Teste Matte
+→ Firenze → Portofino → Dolce Far Niente → "Everything else" catch-all). Customers browse,
+punch in quantities, submit. **Unit wholesale prices show; totals are NEVER rendered in customer
+mode** (nothing sums client-side). Only items in Shopify appear; new products show up in their
+collection automatically on the next snapshot sync.
+- **Two entry paths → one shared pool:** (1) *Kiosk* — rep taps "📋 Form" in the header; the
+  tablet locks into form mode (no rep UI; exit needs the rep's password, dev bypasses); runs off
+  the cached snapshot, so it works offline and queues submissions in IndexedDB (flushed on
+  reconnect). (2) *QR/public* — customers open `/?form=<code>` on their own phone;
+  `ORDER_FORM_CODE` env gates `/api/form/catalog` + `/api/form/submit` (the public catalog strips
+  the volume-tier + deposit config; UNSET code = public form disabled). Friendly code re-entry
+  screen on 401.
+- **Pending pool:** submissions land in `pending_orders` (Postgres; in-memory fallback when no
+  DATABASE_URL) via `server/src/pending.js`, broadcast over SSE (`type:pending`). Every rep sees
+  the **Pending** tab (badge count, 60s poll + SSE push). Open → seeds the normal Cart review
+  (live totals, volume discount, deposit preview, CustomerPicker prefilled with the buyer's
+  company/contact/email/phone, card-on-file) → **Confirm** hits `/api/pending/:id/confirm`, which
+  runs the standard `createOrders` pipeline (ready/backorder split + deposits + captain queue)
+  and closes the row (audit: handled_by/at + draft names). Dismiss also audited; conflict-guarded
+  (409 if already handled). Confirm failures leave the row pending (retry-safe).
+- **Print:** 🖨 button renders `PrintOrderForm` (cover page with company-info blanks like the
+  paper form's page 1, then per-collection tables: photo, item, SKU, unit price, blank qty box)
+  and calls `window.print()` — print it the morning of a show and it's automatically current.
+- Files: `server/src/pending.js`, `web/src/components/{OrderFormView,PendingView,PrintOrderForm}.jsx`,
+  `web/src/formSections.js` (shared section builder + offline submit queue), routes in server.js,
+  `ORDER_FORM_COLLECTION_HANDLES`/`orderFormCode` in config.js, Dexie v2 `queuedForms`.
+
 **Checkout-captain queue (BUILT 2026-07-01, in the app):** a dedicated **Checkout** tab in this
 same PWA, so one person running POS doesn't have to hunt drafts or do deposit math. It lists the
 draft orders this app created (`GET /api/checkout/queue` → Shopify `draftOrders(query:"tag:b2b-app",
@@ -339,7 +368,10 @@ leave unset to use the code default which includes them), `APP_URL=https://baci-
 `RESEND_API_KEY` (not set yet), `SHOPIFY_API_VERSION` (optional; code default 2026-04),
 `CAPTAIN_EMAILS` (optional comma list; empty = every rep sees the Checkout tab; set to lock POS
 checkout to one dedicated person), `DEFAULT_DEPOSIT_NEW_PCT`/`DEFAULT_DEPOSIT_REPEAT_PCT`
-(optional; fallbacks if the `b2b.deposit_pct` shop metafield is missing — 40/30).
+(optional; fallbacks if the `b2b.deposit_pct` shop metafield is missing — 40/30),
+`ORDER_FORM_CODE` (per-event code for the public QR order form at `/?form=<code>`; unset =
+public form disabled, kiosk mode unaffected; rotate per show),
+`ORDER_FORM_COLLECTION_HANDLES` (optional; overrides the printed-catalogue section order).
 
 ## 12. Run locally
 

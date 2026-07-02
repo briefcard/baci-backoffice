@@ -40,6 +40,24 @@ export const MATERIALS = [
   'Stainless Steel',
 ];
 
+// Customer order-form section order — mirrors the printed order form's catalogue order
+// (ORDER_FORM_US_DRAFT_3: Mamma Mia → Zodiac → Joke → Crystal Touch → Sagrada Familia →
+// Teste Matte → Firenze → Portofino), then the remaining design lines. Products not in any of
+// these get an "Everything else" section client-side so new Shopify items never vanish.
+export const ORDER_FORM_COLLECTION_HANDLES = [
+  'mamma-mia',
+  'zodiac-vibe',
+  'joke',
+  'crystal-touch',
+  'baroque-rock',
+  'aqua',
+  'sagrada-familia',
+  'teste-matte',
+  'firenze',
+  'portofino',
+  'dolce-far-niente',
+];
+
 // Curated "design line" collections shown at the top of the rep browse, in this order.
 export const MAIN_COLLECTIONS = [
   { handle: 'mamma-mia', title: 'Mamma Mia' },
@@ -103,6 +121,16 @@ export const cfg = {
   captainEmails: (process.env.CAPTAIN_EMAILS || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+  // Per-event access code for the PUBLIC (QR) order form. Customers scanning the booth QR open
+  // /?form=<code>; the code gates the catalog + submit endpoints since they expose wholesale
+  // prices without a rep login. UNSET = the public form is disabled (kiosk mode still works,
+  // it runs under the rep's session). Rotate per show.
+  orderFormCode: (process.env.ORDER_FORM_CODE || '').trim(),
+  // Order-form section order (collection handles); defaults to the printed catalogue's order.
+  orderFormCollections: (process.env.ORDER_FORM_COLLECTION_HANDLES || ORDER_FORM_COLLECTION_HANDLES.join(','))
+    .split(',')
+    .map((s) => s.trim())
     .filter(Boolean),
   jwtSecret: process.env.JWT_SECRET || 'dev-insecure-secret-change-me',
   databaseUrl: process.env.DATABASE_URL || '',

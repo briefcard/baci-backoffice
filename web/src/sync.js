@@ -9,6 +9,7 @@
 // Status drives the freshness badge: 'live' | 'reconnecting' | 'offline'.
 import { api } from './api.js';
 import * as store from './db.js';
+import { flushQueuedForms } from './formSections.js';
 
 let state = { status: 'offline', syncedAt: null, snapshot: null, config: null, availability: {} };
 const listeners = new Set();
@@ -45,6 +46,7 @@ export async function init() {
   if (navigator.onLine) {
     await refresh();
     openStream();
+    flushQueuedForms(); // send any order forms filled out while offline
   } else {
     set({ status: 'offline' });
   }
@@ -98,6 +100,9 @@ function openStream() {
           syncedAt: Date.now(),
           status: 'live',
         });
+      } else if (msg.type === 'pending') {
+        // A customer just submitted an order form — nudge the Pending tab to refresh.
+        window.dispatchEvent(new CustomEvent('pending-order', { detail: msg }));
       }
     } catch {
       /* ignore malformed */
@@ -122,6 +127,7 @@ function onOnline() {
   set({ status: 'reconnecting' });
   refreshInventory();
   openStream();
+  flushQueuedForms(); // offline-filled order forms go out the moment signal returns
 }
 
 function onOffline() {

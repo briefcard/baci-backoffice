@@ -6,6 +6,25 @@ db.version(1).stores({
   kv: 'key',
   availability: 'variantId',
 });
+// v2: queued order-form submissions — filled out while offline, sent when signal returns.
+db.version(2).stores({
+  kv: 'key',
+  availability: 'variantId',
+  queuedForms: '++qid',
+});
+
+export async function queueForm(entry) {
+  return db.queuedForms.add({ ...entry, queuedAt: Date.now() });
+}
+
+export async function takeQueuedForms() {
+  const rows = await db.queuedForms.toArray();
+  return rows;
+}
+
+export async function removeQueuedForm(qid) {
+  await db.queuedForms.delete(qid);
+}
 
 export async function saveSnapshot(snapshot) {
   await db.kv.put({ key: 'snapshot', value: snapshot });

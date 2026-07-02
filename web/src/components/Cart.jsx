@@ -21,7 +21,9 @@ function splitItems(items, availability) {
 
 const sum = (its) => its.reduce((s, i) => s + i.unit * i.qty, 0);
 
-export function Cart({ config, availability, onClose }) {
+// Also used to review a customer-submitted order form: `pendingId` switches the submit to the
+// pending-confirm endpoint (which closes out the pool entry), with the buyer's info prefilled.
+export function Cart({ config, availability, onClose, pendingId, initialCustomer, initialNotes }) {
   const items = useCart();
   const currency = config?.currency || 'USD';
   const tiers = config?.tiers || [];
@@ -33,8 +35,8 @@ export function Cart({ config, availability, onClose }) {
   const combinedSubtotal = round2(readySubtotal + backorderSubtotal);
   const cap = maxAdditionalPct(combinedSubtotal, tiers);
 
-  const [customer, setCustomer] = useState(null);
-  const [notes, setNotes] = useState('');
+  const [customer, setCustomer] = useState(initialCustomer || null);
+  const [notes, setNotes] = useState(initialNotes || '');
   const [disc, setDisc] = useState(0);
   const [cardOnFile, setCardOnFile] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,13 +57,14 @@ export function Cart({ config, availability, onClose }) {
     setErr('');
     setBusy(true);
     try {
-      const res = await api.createOrder({
+      const payload = {
         lines: items.map((i) => ({ variantId: i.variantId, quantity: i.qty })),
         customer: customer ? { id: customer.id || undefined, name: customer.name, email: customer.email, phone: customer.phone } : {},
         notes,
         repDiscountPct: applied,
         cardOnFile,
-      });
+      };
+      const res = pendingId ? await api.confirmPending(pendingId, payload) : await api.createOrder(payload);
       setDone(res);
       cart.clear();
     } catch (e) {
@@ -134,7 +137,7 @@ export function Cart({ config, availability, onClose }) {
     <div className="cart-overlay" onClick={onClose}>
       <div className="cart" onClick={(e) => e.stopPropagation()}>
         <div className="cart-head">
-          <strong>Order</strong>
+          <strong>{pendingId ? 'Review order form' : 'Order'}</strong>
           <button className="x" onClick={onClose}>
             ✕
           </button>

@@ -8,11 +8,12 @@ import fastifyStatic from '@fastify/static';
 import { cfg, scopesSatisfied, isCaptainEmail } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { buildSnapshot, snapshotResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
+import { buildSnapshot, snapshotResponse, publicFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
 import { createOrders } from './orders.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
-import { addClient, clientCount } from './stream.js';
+import { createPendingRow, savePending, listPending, getPending, markHandled } from './pending.js';
+import { addClient, clientCount, broadcast } from './stream.js';
 import { verifyShopifyHmac, handleInventoryLevelUpdate } from './webhooks.js';
 import {
   signSession,
@@ -185,6 +186,84 @@ app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) => {
     req.log.error({ err }, 'draft order failed');
     return reply.code(400).send({ error: String(err?.message || err) });
   }
+});
+
+// ---- Customer order form (the digitized paper form) ----
+// Two entry paths, one shared pool:
+//   kiosk — a rep's booth tablet in locked form mode (rep session cookie) → POST /api/order-forms
+//   QR    — a customer's own phone via /?form=<code> (no session; per-event code) → /api/form/*
+// Submissions never create Shopify objects directly; they land in pending_orders for rep review.
+
+function formCodeOk(req) {
+  const code = String(req.query?.code || '');
+  return !!cfg.orderFormCode && code === cfg.orderFormCode;
+}
+
+async function acceptSubmission(reply, fields) {
+  try {
+    const row = createPendingRow(fields);
+    await savePending(row);
+    broadcast({ type: 'pending', id: row.id, at: Date.now() });
+    return { ok: true, id: row.id };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+}
+
+// Kiosk submission (rep-attributed, shared pool).
+app.post('/api/order-forms', { preHandler: requireAuth }, async (req, reply) =>
+  acceptSubmission(reply, {
+    source: 'kiosk',
+    repEmail: req.rep.email,
+    repName: req.rep.name,
+    customer: req.body?.customer,
+    lines: req.body?.lines,
+    notes: req.body?.notes,
+  })
+);
+
+// Public (QR) catalog — code-gated; strips the rep-only negotiation config.
+app.get('/api/form/catalog', async (req, reply) => {
+  if (!formCodeOk(req)) return reply.code(401).send({ error: 'invalid form code' });
+  return publicFormResponse();
+});
+
+// Public (QR) submission — code-gated, unattributed (rep: none; the pool routes it).
+app.post('/api/form/submit', async (req, reply) => {
+  if (!formCodeOk(req)) return reply.code(401).send({ error: 'invalid form code' });
+  return acceptSubmission(reply, {
+    source: 'qr',
+    customer: req.body?.customer,
+    lines: req.body?.lines,
+    notes: req.body?.notes,
+  });
+});
+
+// Shared pending pool — every rep (and the captain) sees all submissions.
+app.get('/api/pending', { preHandler: requireAuth }, async () => ({ pending: await listPending() }));
+
+// Confirm: the reviewing rep's (possibly edited) payload goes through the NORMAL order pipeline
+// (wholesale pricing, ready/backorder split, deposit tiers) and the pending row is closed out.
+app.post('/api/pending/:id/confirm', { preHandler: requireAuth }, async (req, reply) => {
+  const row = await getPending(req.params.id);
+  if (!row) return reply.code(404).send({ error: 'not found' });
+  if (row.status !== 'pending') return reply.code(409).send({ error: `already ${row.status}` });
+  try {
+    const result = await createOrders(req.rep, req.body || {});
+    await markHandled(row.id, { status: 'confirmed', by: req.rep.email, result });
+    return { ok: true, ...result };
+  } catch (err) {
+    req.log.error({ err }, 'pending confirm failed');
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+app.post('/api/pending/:id/dismiss', { preHandler: requireAuth }, async (req, reply) => {
+  const row = await getPending(req.params.id);
+  if (!row) return reply.code(404).send({ error: 'not found' });
+  if (row.status !== 'pending') return reply.code(409).send({ error: `already ${row.status}` });
+  await markHandled(row.id, { status: 'dismissed', by: req.rep.email });
+  return { ok: true };
 });
 
 // ---- Checkout-captain queue: the draft orders this app created, parsed with the amount to

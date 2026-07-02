@@ -202,14 +202,32 @@ export async function buildSnapshot() {
   return cache;
 }
 
+// Order-form sections in the printed catalogue's order, with display titles resolved from the
+// curated main-collections list (fallback: prettified handle for anything not in it).
+function formCollections() {
+  const titles = new Map(cfg.mainCollections.map((c) => [c.handle, c.title]));
+  return cfg.orderFormCollections.map((handle) => ({
+    handle,
+    title: titles.get(handle) || handle.replace(/-/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
+  }));
+}
+
 export function snapshotResponse() {
   return {
     version: cache.version,
     builtAt: cache.builtAt,
     showcase: cache.showcase,
-    config: { ...cache.config, mainCollections: cfg.mainCollections },
+    config: { ...cache.config, mainCollections: cfg.mainCollections, formCollections: formCollections() },
     products: cache.products,
   };
+}
+
+// What the PUBLIC (QR) order form gets: same catalog + unit-pricing inputs, but WITHOUT the
+// rep-only negotiation levers (volume ladder, deposit tiers) — those never render on the form.
+export function publicFormResponse() {
+  const r = snapshotResponse();
+  const { tiers, depositPct, ...safe } = r.config;
+  return { ...r, config: { ...safe, tiers: [] } };
 }
 
 export function availabilityResponse() {

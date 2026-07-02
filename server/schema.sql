@@ -42,6 +42,24 @@ CREATE TABLE IF NOT EXISTS shop_tokens (
   installed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Customer order-form submissions (kiosk tablet or QR link) awaiting rep review.
+-- A rep opens one, adjusts, then confirms -> Shopify draft order(s) via the normal pipeline.
+CREATE TABLE IF NOT EXISTS pending_orders (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | confirmed | dismissed
+  source TEXT,                            -- kiosk | qr
+  rep_email TEXT,                         -- rep whose device captured it (kiosk)
+  rep_name TEXT,
+  customer JSONB,                         -- { company, contact, email, phone } as typed by the buyer
+  lines JSONB NOT NULL,                   -- [{ variantId, quantity, sku, title }]
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  handled_by TEXT,
+  handled_at TIMESTAMPTZ,
+  result JSONB                            -- draft order names/ids on confirm
+);
+CREATE INDEX IF NOT EXISTS idx_pending_orders_status ON pending_orders(status);
+
 -- Seed your ~10 reps (edit, then re-run `npm run migrate` or run manually):
 -- INSERT INTO reps (email, name) VALUES
 --   ('jane@bacimilanousa.com', 'Jane Doe'),
