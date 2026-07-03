@@ -10,6 +10,7 @@ import { shopifyGraphQL } from './shopify.js';
 import { cache } from './snapshot.js';
 import { round2, maxAdditionalPct } from './domain.js';
 import { resolveCustomer } from './customers.js';
+import { cfg } from './config.js';
 
 const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
 
@@ -67,8 +68,9 @@ function priceLines(entries, discountPct) {
   return { lineItems, subtotal: round2(subtotal) };
 }
 
-async function submitDraftOrder({ lineItems, tags, customAttributes, note, customerId, customer, volumeDiscountPct }) {
+async function submitDraftOrder({ lineItems, tags, customAttributes, note, customerId, customer, volumeDiscountPct, reserveUntil }) {
   const input = { lineItems, note: note || '', tags, customAttributes };
+  if (reserveUntil) input.reserveInventoryUntil = reserveUntil;
   if (customer?.phone) input.phone = String(customer.phone).trim();
   if (customerId) input.purchasingEntity = { customerId };
   else if (customer?.email) input.email = String(customer.email).trim();
@@ -125,6 +127,10 @@ export async function createOrders(rep, body = {}) {
   const result = { ready: null, backorder: null };
 
   if (readyItems.length) {
+    // Oversell guard: hold this draft's inventory so other reps / the online store can't sell
+    // the same units while payment is being collected. Expires automatically if never completed.
+    const reserveUntil =
+      cfg.reserveHours > 0 ? new Date(Date.now() + cfg.reserveHours * 3600 * 1000).toISOString() : null;
     result.ready = await submitDraftOrder({
       lineItems: readyItems,
       tags: [...baseTags, 'ready-to-ship'],
@@ -133,6 +139,7 @@ export async function createOrders(rep, body = {}) {
       customerId,
       customer,
       volumeDiscountPct: applied,
+      reserveUntil,
     });
   }
 

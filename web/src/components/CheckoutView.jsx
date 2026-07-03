@@ -9,12 +9,14 @@ export function CheckoutView({ config }) {
   const currency = config?.currency || 'USD';
   const [queue, setQueue] = useState(null);
   const [err, setErr] = useState('');
+  const [notInstalled, setNotInstalled] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState(null);
 
   const load = useCallback(async () => {
     try {
       const res = await api.checkoutQueue();
       setQueue(res.queue || []);
+      setNotInstalled(!!res.notInstalled);
       setErr('');
       setRefreshedAt(Date.now());
     } catch (e) {
@@ -29,6 +31,28 @@ export function CheckoutView({ config }) {
   }, [load]);
 
   if (queue == null && !err) return <div className="center muted">Loading checkout queue…</div>;
+
+  if (notInstalled) {
+    return (
+      <div className="checkout">
+        <div className="co-explain">
+          <h3>Checkout — how it works</h3>
+          <p>
+            This tab is the payment queue for the person at the register. Every order a rep
+            confirms becomes a Shopify <strong>draft order</strong>, and it appears here with the{' '}
+            <strong>exact amount to collect now</strong> — the full total for ready-to-ship
+            orders, or just the deposit for backorders. "Take payment" opens that draft in
+            Shopify, where you collect payment (register card reader, POS, or invoice) and the
+            draft becomes a real paid order.
+          </p>
+          <p className="muted">
+            It's empty because this app isn't connected to the live Shopify store yet (no orders
+            to read). Once deployed &amp; installed, confirmed orders show up here in real time.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const open = (queue || []).filter((d) => !d.completed);
   const completed = (queue || []).filter((d) => d.completed);

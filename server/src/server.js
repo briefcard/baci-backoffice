@@ -270,6 +270,11 @@ app.post('/api/pending/:id/dismiss', { preHandler: requireAuth }, async (req, re
 // collect now + a deep link to the Shopify draft, for the one person running POS payments. ----
 app.get('/api/checkout/queue', { preHandler: requireAuth }, async (req, reply) => {
   if (!isCaptainEmail(req.rep.email)) return reply.code(403).send({ error: 'not a checkout captain' });
+  // The queue reads REAL draft orders from Shopify — without an installed token (local dev /
+  // pre-OAuth) there's nothing to read; say so instead of erroring.
+  if (!(await getToken(cfg.shopifyStore).catch(() => null))) {
+    return { queue: [], notInstalled: true };
+  }
   try {
     return { queue: await listCheckoutQueue() };
   } catch (err) {

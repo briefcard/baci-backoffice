@@ -292,6 +292,14 @@ main { padding-bottom: 96px; }
 .form-note { padding: 8px 2px; }
 .exit-gate input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; margin: 10px 0; }
 
+.cs-dep { color: var(--low); font-weight: 700; }
+.dep-note { background: #fff4d6; border: 1px solid #eadfb8; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin: 4px 0; }
+
+/* Checkout explainer (shown until the app is connected to live Shopify) */
+.co-explain { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; line-height: 1.55; font-size: 14px; }
+.co-explain h3 { margin: 0 0 8px; }
+.co-explain p { margin: 0 0 10px; }
+
 /* ---- Pending pool (rep view) ---- */
 .pending { padding: 12px; display: grid; gap: 10px; }
 .pend-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }

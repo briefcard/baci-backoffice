@@ -165,6 +165,7 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
       {review && (
         <ReviewSheet
           chosen={chosen}
+          availability={availability}
           currency={currency}
           mode={mode}
           code={code}
@@ -189,14 +190,19 @@ function FormRow({ product, availability, pct, currency, qty, setQ }) {
         </div>
         <div className="fvars">
           {product.variants.map((v) => {
-            const avail = availability?.[v.id] ?? v.available ?? 0;
+            const avail = Math.max(0, availability?.[v.id] ?? v.available ?? 0);
             const out = avail <= 0;
+            // Oversell guard, customer-visible: any quantity beyond current stock is flagged as
+            // the deposit portion (without ever showing the raw stock number unprompted).
+            const entered = Math.floor(Number(qty[v.id]) || 0);
+            const over = Math.max(0, entered - avail);
             return (
               <div className={`fvar ${out ? 'isout' : ''}`} key={v.id}>
                 <div className="fvar-main">
                   <span className="fsku">{v.sku || '—'}</span>
                   {v.title && v.title !== 'Default Title' && <span className="fvtitle">{v.title}</span>}
-                  {out && <span className="flater">ships later</span>}
+                  {out && <span className="flater">deposit · ships later</span>}
+                  {!out && over > 0 && <span className="flater">+{over} on deposit</span>}
                 </div>
                 <span className="fpricewrap">
                   <span className="fprice">{money(unitWholesalePrice(v, pct), currency)}</span>
@@ -220,7 +226,7 @@ function FormRow({ product, availability, pct, currency, qty, setQ }) {
   );
 }
 
-function ReviewSheet({ chosen, currency, mode, code, onBack, onDone, setQ }) {
+function ReviewSheet({ chosen, availability, currency, mode, code, onBack, onDone, setQ }) {
   const [company, setCompany] = useState('');
   const [contact, setContact] = useState('');
   const [email, setEmail] = useState('');
@@ -265,20 +271,37 @@ function ReviewSheet({ chosen, currency, mode, code, onBack, onDone, setQ }) {
           </button>
         </div>
         <div className="cart-body">
-          {chosen.map((c) => (
-            <div className="citem" key={c.variant.id}>
-              {c.product.image ? <img src={c.product.image} alt="" /> : <div className="ph" />}
-              <div className="cinfo">
-                <div className="ct">{c.product.title}</div>
-                <div className="cs">
-                  {c.variant.sku} · qty {c.qty}
+          {chosen.map((c) => {
+            const avail = Math.max(0, availability?.[c.variant.id] ?? c.variant.available ?? 0);
+            const now = Math.min(avail, c.qty);
+            const dep = c.qty - now;
+            return (
+              <div className="citem" key={c.variant.id}>
+                {c.product.image ? <img src={c.product.image} alt="" /> : <div className="ph" />}
+                <div className="cinfo">
+                  <div className="ct">{c.product.title}</div>
+                  <div className="cs">
+                    {c.variant.sku} · qty {c.qty}
+                    {dep > 0 && (
+                      <span className="cs-dep">
+                        {now > 0 ? ` — ${now} now · ${dep} on deposit` : ' — on deposit (ships when available)'}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                <button className="link" onClick={() => setQ(c.variant.id, 0)}>
+                  Remove
+                </button>
               </div>
-              <button className="link" onClick={() => setQ(c.variant.id, 0)}>
-                Remove
-              </button>
+            );
+          })}
+
+          {chosen.some((c) => c.qty > Math.max(0, availability?.[c.variant.id] ?? c.variant.available ?? 0)) && (
+            <div className="dep-note">
+              Quantities beyond what's on hand are <strong>secured with a deposit</strong> and ship
+              as soon as stock arrives — so nothing gets oversold. Your rep will go over the details.
             </div>
-          ))}
+          )}
 
           <div className="muted small form-note">
             A Baci Milano rep will go over totals, availability, and any volume pricing with you.
