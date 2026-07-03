@@ -291,6 +291,17 @@ collection automatically on the next snapshot sync.
   runs the standard `createOrders` pipeline (ready/backorder split + deposits + captain queue)
   and closes the row (audit: handled_by/at + draft names). Dismiss also audited; conflict-guarded
   (409 if already handled). Confirm failures leave the row pending (retry-safe).
+- **Oversell guard (2026-07-02, commit 866a436):** two layers. (1) *Reservation*: every
+  ready-to-ship draft order sets `reserveInventoryUntil` (+`RESERVE_INVENTORY_HOURS`, default
+  72h; 0 disables) so confirmed units are held in Shopify and can't be resold by another rep or
+  the online store while payment is collected; the hold auto-expires if the draft is never
+  completed. (2) *Visibility*: the customer form flags over-stock quantities without showing raw
+  stock numbers — "+N on deposit" chip on the row when the entered qty exceeds available
+  ("deposit · ships later" when fully out), and the review sheet shows the per-line split
+  ("8 now · 991 on deposit") + a "secured with a deposit… nothing gets oversold" note. The
+  server-side ready/backorder split at confirm remains the enforcement point (client display is
+  cosmetic). Git identity note: repo-local user.name/email set 2026-07-03 (gmail) — global git
+  config is empty on this machine and hostname-based auto-detection broke.
 - **MSRP + type subgroups (2026-07-02):** every price on the form (digital + print) shows the
   wholesale unit AND the MSRP (struck-through on screen, its own column in print); within each
   collection, products are sub-grouped by product type (Pitchers, Water Glasses, Mugs…) via
