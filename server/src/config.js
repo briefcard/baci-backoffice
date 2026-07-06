@@ -86,9 +86,11 @@ export const cfg = {
   // OAuth credentials (Client ID / Secret). Used to install the app and obtain an access token.
   apiKey: process.env.SHOPIFY_API_KEY || '',
   apiSecret: process.env.SHOPIFY_API_SECRET || '',
+  // write_inventory (receive -> stock up) + write_products (bin/ETA metafields) ride along with
+  // the pending customer-scopes re-auth so the owner only approves once.
   scopes:
     process.env.SHOPIFY_SCOPES ||
-    'read_products,read_inventory,read_locations,read_draft_orders,write_draft_orders,read_customers,write_customers',
+    'read_products,write_products,read_inventory,write_inventory,read_locations,read_draft_orders,write_draft_orders,read_customers,write_customers',
 
   // Confirmed business settings (overridable via env)
   sellableLocationIds: (process.env.SELLABLE_LOCATION_IDS ||
@@ -131,6 +133,13 @@ export const cfg = {
   // prices without a rep login. UNSET = the public form is disabled (kiosk mode still works,
   // it runs under the rep's session). Rotate per show.
   orderFormCode: (process.env.ORDER_FORM_CODE || '').trim(),
+  // Back-office admins: ONLY these emails see the Inbound (shipments) tab. Unlike CAPTAIN_EMAILS,
+  // empty does NOT mean everyone — reps must never be bothered by back-office tooling. The dev
+  // rep (AUTH_DISABLED) is always an admin so local work stays frictionless.
+  adminEmails: (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean),
   // Order-form section order (collection handles); defaults to the printed catalogue's order.
   orderFormCollections: (process.env.ORDER_FORM_COLLECTION_HANDLES || ORDER_FORM_COLLECTION_HANDLES.join(','))
     .split(',')
@@ -152,6 +161,13 @@ export const sellableNumericLocationIds = cfg.sellableLocationIds.map((g) =>
 export function isCaptainEmail(email) {
   if (!cfg.captainEmails.length) return true;
   return cfg.captainEmails.includes(String(email || '').toLowerCase());
+}
+
+// Back-office admin gate (Inbound shipments). Dev rep always passes; otherwise allow-list only.
+export function isAdminEmail(email) {
+  const e = String(email || '').toLowerCase();
+  if (e === 'dev@local') return true;
+  return cfg.adminEmails.includes(e);
 }
 
 // True when the granted OAuth scopes cover everything the app currently needs.

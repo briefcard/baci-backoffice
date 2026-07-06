@@ -8,6 +8,7 @@ import { Cart } from './components/Cart.jsx';
 import { CheckoutView } from './components/CheckoutView.jsx';
 import { OrderFormView } from './components/OrderFormView.jsx';
 import { PendingView } from './components/PendingView.jsx';
+import { InboundView } from './components/InboundView.jsx';
 import { PrintDoc, BlankFormDoc, OrderCopyDoc } from './components/PrintDocs.jsx';
 import { cart, useCart, cartCount, cartSubtotal } from './cart.js';
 
@@ -175,6 +176,7 @@ function Shell({ me }) {
   const [printing, setPrinting] = useState(null); // null | 'blank' | { order } (copy of current cart)
   const cartItems = useCart();
   const isCaptain = !!me?.isCaptain;
+  const isAdmin = !!me?.isAdmin;
 
   const loadPending = useCallback(() => {
     api
@@ -242,6 +244,7 @@ function Shell({ me }) {
   const pendingCount = (pending || []).filter((p) => p.status === 'pending').length;
   const showCheckout = isCaptain && view === 'checkout';
   const showPending = view === 'pending';
+  const showInbound = isAdmin && view === 'inbound';
 
   // A rep opened a submitted form: seed the normal cart with its lines (priced from the live
   // snapshot) and open the standard review drawer with the buyer's info prefilled.
@@ -350,8 +353,13 @@ function Shell({ me }) {
               Checkout
             </button>
           )}
+          {isAdmin && (
+            <button className={view === 'inbound' ? 'tab active' : 'tab'} onClick={() => setView('inbound')}>
+              Inbound
+            </button>
+          )}
         </div>
-        {!showCheckout && !showPending && (
+        {!showCheckout && !showPending && !showInbound && (
           <input
             className="search"
             placeholder="Search SKU, name, or type…"
@@ -362,7 +370,9 @@ function Shell({ me }) {
         )}
       </header>
       <main>
-        {showCheckout ? (
+        {showInbound ? (
+          <InboundView snapshot={s.snapshot} />
+        ) : showCheckout ? (
           <CheckoutView config={s.config} />
         ) : showPending ? (
           <PendingView pending={pending} onOpen={openPending} onDismiss={dismissPending} />
@@ -389,7 +399,7 @@ function Shell({ me }) {
         )}
       </main>
 
-      {!showCheckout && !showPending && cartItems.length > 0 && (
+      {!showCheckout && !showPending && !showInbound && cartItems.length > 0 && (
         <button className="cartbar" onClick={() => setShowCart(true)}>
           <span>
             {cartCount(cartItems)} item{cartCount(cartItems) !== 1 ? 's' : ''}

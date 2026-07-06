@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import { cfg, scopesSatisfied, isCaptainEmail } from './config.js';
+import { cfg, scopesSatisfied, isCaptainEmail, isAdminEmail } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, publicFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
@@ -13,6 +13,15 @@ import { createOrders } from './orders.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
 import { createPendingRow, savePending, listPending, getPending, markHandled } from './pending.js';
+import {
+  createShipment,
+  listShipments,
+  getShipment,
+  updateShipment,
+  receiveShipment,
+  refreshRollup,
+  SHIPMENT_STATUSES,
+} from './inbound.js';
 import { addClient, clientCount, broadcast } from './stream.js';
 import { verifyShopifyHmac, handleInventoryLevelUpdate } from './webhooks.js';
 import {
@@ -85,8 +94,42 @@ app.get('/api/health', async () => ({
 }));
 
 app.get('/api/me', { preHandler: requireAuth }, async (req) => ({
-  rep: { ...req.rep, isCaptain: isCaptainEmail(req.rep.email) },
+  rep: { ...req.rep, isCaptain: isCaptainEmail(req.rep.email), isAdmin: isAdminEmail(req.rep.email) },
 }));
+
+// ---- Inbound shipments (back-office, ADMIN ONLY — reps never see this) ----
+app.get('/api/inbound', { preHandler: requireAuth }, async (req, reply) => {
+  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+  return { shipments: await listShipments(), statuses: SHIPMENT_STATUSES };
+});
+
+app.post('/api/inbound', { preHandler: requireAuth }, async (req, reply) => {
+  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+  try {
+    const ship = await createShipment(req.rep.email, req.body || {});
+    await refreshRollup();
+    return { ok: true, shipment: ship };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+app.post('/api/inbound/:id', { preHandler: requireAuth }, async (req, reply) => {
+  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+  const ship = await updateShipment(req.params.id, req.rep.email, req.body || {});
+  if (!ship) return reply.code(404).send({ error: 'not found' });
+  await refreshRollup();
+  return { ok: true, shipment: ship };
+});
+
+// QA receive: counted / damaged / bins per line → good units up in Shopify (or queued on error).
+app.post('/api/inbound/:id/receive', { preHandler: requireAuth }, async (req, reply) => {
+  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+  const ship = await receiveShipment(req.params.id, req.rep.email, req.body || {});
+  if (!ship) return reply.code(404).send({ error: 'not found' });
+  await refreshRollup();
+  return { ok: true, shipment: ship };
+});
 
 // ---- Auth ----
 app.post('/api/auth/request', async (req, reply) => {
@@ -396,6 +439,9 @@ async function start() {
       .then(() => app.log.info('db schema ensured'))
       .catch((err) => app.log.error({ err }, 'migration failed'));
   }
+
+  // Prime the inbound-shipments overlay so the sales floor sees incoming/ETA from day one.
+  await refreshRollup().catch((err) => app.log.warn({ err }, 'inbound rollup failed'));
 
   if (await ensureLiveSync()) {
     app.log.info('Live Shopify sync active.');

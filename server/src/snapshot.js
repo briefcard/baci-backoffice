@@ -212,13 +212,39 @@ function formCollections() {
   }));
 }
 
+// Overlay set by the inbound-shipments module (admin back office): per-variant incoming totals
+// + earliest ETA from open shipments. Shopify-native incoming/restock_eta still show when
+// present; our shipment data fills the gaps so BackOrder info on the floor is reliable even
+// before anything is entered in Shopify itself.
+let inboundOverlay = { incoming: new Map(), eta: new Map() };
+export function setInboundOverlay(o) {
+  if (o) inboundOverlay = o;
+}
+
+function overlaidProducts() {
+  if (!inboundOverlay.incoming.size && !inboundOverlay.eta.size) return cache.products;
+  return cache.products.map((p) => ({
+    ...p,
+    variants: p.variants.map((v) => {
+      const inc = inboundOverlay.incoming.get(v.id) || 0;
+      const eta = inboundOverlay.eta.get(v.id) || null;
+      if (!inc && !eta) return v;
+      return {
+        ...v,
+        incoming: Math.max(v.incoming || 0, inc),
+        restockEta: v.restockEta || eta,
+      };
+    }),
+  }));
+}
+
 export function snapshotResponse() {
   return {
     version: cache.version,
     builtAt: cache.builtAt,
     showcase: cache.showcase,
     config: { ...cache.config, mainCollections: cfg.mainCollections, formCollections: formCollections() },
-    products: cache.products,
+    products: overlaidProducts(),
   };
 }
 

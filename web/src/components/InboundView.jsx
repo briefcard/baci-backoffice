@@ -1,0 +1,383 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { api } from '../api.js';
+
+// Back-office inbound shipment tracker (ADMIN ONLY — reps never see this tab).
+// Lanes: Ordered → In transit → Arrived → Receiving → Received. Each shipment carries origin,
+// references, ETA, a status timeline, and SKU lines. "Receive" runs the QA intake that replaces
+// the Google Sheet: counted / damaged / bin locations per line; good units push to Shopify.
+const LANES = [
+  ['ordered', 'Ordered'],
+  ['in_transit', 'In transit'],
+  ['arrived', 'Arrived'],
+  ['receiving', 'Receiving'],
+  ['received', 'Received'],
+];
+
+const fmtDate = (d) => {
+  if (!d) return '—';
+  try {
+    return new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return d;
+  }
+};
+
+const daysLate = (eta) => {
+  if (!eta) return 0;
+  return Math.floor((Date.now() - new Date(eta + 'T00:00:00').getTime()) / 86400000);
+};
+
+export function InboundView({ snapshot }) {
+  const [ships, setShips] = useState(null);
+  const [editing, setEditing] = useState(null); // shipment object | 'new'
+  const [receiving, setReceiving] = useState(null); // shipment object
+  const [err, setErr] = useState('');
+
+  const load = async () => {
+    try {
+      const r = await api.inboundList();
+      setShips(r.shipments || []);
+      setErr('');
+    } catch (e) {
+      setErr(/403/.test(String(e?.message)) ? 'Admin access required.' : 'Could not load shipments.');
+      setShips([]);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const skuIndex = useMemo(() => {
+    const m = new Map();
+    for (const p of snapshot?.products || [])
+      for (const v of p.variants) if (v.sku) m.set(v.sku.toLowerCase(), { product: p, variant: v });
+    return m;
+  }, [snapshot]);
+
+  if (ships == null) return <div className="center muted">Loading shipments…</div>;
+
+  const open = ships.filter((x) => x.status !== 'received' && x.status !== 'cancelled');
+  const totalUnits = (ship) => ship.lines.reduce((n, l) => n + (l.expected || 0), 0);
+
+  return (
+    <div className="inbound">
+      <div className="checkout-head">
+        <div>
+          <strong>Inbound shipments</strong>{' '}
+          <span className="muted small">
+            {open.length} open · {open.reduce((n, x) => n + totalUnits(x), 0)} units on the way
+          </span>
+        </div>
+        <button className="primary small" onClick={() => setEditing('new')}>
+          + New shipment
+        </button>
+      </div>
+      {err && <div className="err">{err}</div>}
+
+      {LANES.map(([key, label]) => {
+        const list = ships.filter((x) => x.status === key);
+        if (!list.length) return null;
+        return (
+          <div key={key}>
+            <div className="lane-head">
+              {label} <span className="muted small">{list.length}</span>
+            </div>
+            {list.map((ship) => {
+              const late = ship.status !== 'received' ? daysLate(ship.eta) : 0;
+              return (
+                <div className={`ship-row ${ship.status === 'received' ? 'is-done' : ''}`} key={ship.id}>
+                  <div className="ship-main" onClick={() => setEditing(ship)}>
+                    <div className="pend-line1">
+                      <strong>{ship.origin || 'Shipment'}</strong>
+                      {ship.reference && <span className="muted small">#{ship.reference}</span>}
+                      {late > 0 && <span className="badge warn">{late}d late</span>}
+                    </div>
+                    <div className="muted small">
+                      ETA {fmtDate(ship.eta)} · {ship.lines.length} SKUs · {totalUnits(ship)} units
+                      {ship.carrier ? ` · ${ship.carrier}` : ''}
+                      {ship.lines.some((l) => l.syncError) ? ' · ⚠ sync pending' : ''}
+                    </div>
+                  </div>
+                  <div className="pend-actions">
+                    {(ship.status === 'arrived' || ship.status === 'receiving' || ship.status === 'in_transit') && (
+                      <button className="primary small" onClick={() => setReceiving(ship)}>
+                        Receive ▸
+                      </button>
+                    )}
+                    <button className="link" onClick={() => setEditing(ship)}>
+                      Details
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
+      {ships.length === 0 && (
+        <div className="center muted">No shipments yet — add the ones currently on the water/air.</div>
+      )}
+
+      {editing && (
+        <ShipmentEditor
+          shipment={editing === 'new' ? null : editing}
+          skuIndex={skuIndex}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+        />
+      )}
+      {receiving && (
+        <ReceiveModal
+          shipment={receiving}
+          onClose={() => setReceiving(null)}
+          onDone={() => {
+            setReceiving(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ShipmentEditor({ shipment, skuIndex, onClose, onSaved }) {
+  const [origin, setOrigin] = useState(shipment?.origin || '');
+  const [reference, setReference] = useState(shipment?.reference || '');
+  const [carrier, setCarrier] = useState(shipment?.carrier || '');
+  const [tracking, setTracking] = useState(shipment?.tracking || '');
+  const [eta, setEta] = useState(shipment?.eta || '');
+  const [status, setStatus] = useState(shipment?.status || 'ordered');
+  const [statusNote, setStatusNote] = useState('');
+  const [notes, setNotes] = useState(shipment?.notes || '');
+  const [lines, setLines] = useState(shipment?.lines || []);
+  const [skuInput, setSkuInput] = useState('');
+  const [qtyInput, setQtyInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const addLine = () => {
+    const sku = skuInput.trim();
+    if (!sku) return;
+    const hit = skuIndex.get(sku.toLowerCase());
+    setLines((ls) => [
+      ...ls,
+      {
+        id: crypto.randomUUID(),
+        sku: hit?.variant.sku || sku,
+        variantId: hit?.variant.id || null,
+        title: hit?.product.title || null,
+        expected: Math.max(1, Math.floor(Number(qtyInput) || 1)),
+      },
+    ]);
+    setSkuInput('');
+    setQtyInput('');
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const body = { origin, reference, carrier, tracking, eta, notes, status, statusNote, lines };
+      if (shipment) await api.inboundUpdate(shipment.id, body);
+      else await api.inboundCreate(body);
+      onSaved();
+    } catch (e) {
+      setErr(e?.message || 'Could not save');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="cart-overlay" onClick={onClose}>
+      <div className="cart" onClick={(e) => e.stopPropagation()}>
+        <div className="cart-head">
+          <strong>{shipment ? `Shipment ${shipment.reference || ''}` : 'New shipment'}</strong>
+          <button className="x" onClick={onClose}>✕</button>
+        </div>
+        <div className="cart-body">
+          <div className="cfields">
+            <input placeholder="Origin (e.g. Baci Milano HQ — Italy)" value={origin} onChange={(e) => setOrigin(e.target.value)} />
+            <input placeholder="Reference (PO / invoice / container #)" value={reference} onChange={(e) => setReference(e.target.value)} />
+            <div className="cust-addr-row inbound-row2">
+              <input placeholder="Carrier" value={carrier} onChange={(e) => setCarrier(e.target.value)} />
+              <input placeholder="Tracking #" value={tracking} onChange={(e) => setTracking(e.target.value)} />
+            </div>
+            <label className="inbound-field">
+              <span>ETA</span>
+              <input type="date" value={eta || ''} onChange={(e) => setEta(e.target.value)} />
+            </label>
+            <label className="inbound-field">
+              <span>Status</span>
+              <select value={status} onChange={(e) => setStatus(e.target.value)}>
+                {LANES.map(([k, l]) => (
+                  <option key={k} value={k}>{l}</option>
+                ))}
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <input placeholder="Status note (e.g. cleared customs 7/2)" value={statusNote} onChange={(e) => setStatusNote(e.target.value)} />
+            <textarea placeholder="Notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+
+          <div className="lane-head">Items</div>
+          {lines.map((l, i) => (
+            <div className="inb-line" key={l.id || i}>
+              <div className="inb-line-main">
+                <span className="fsku">{l.sku}</span>
+                <span className={l.variantId ? 'small' : 'small err-inline'}>
+                  {l.title || (l.variantId ? '' : 'not in catalog')}
+                </span>
+              </div>
+              <input
+                className="fqty"
+                type="number"
+                min="0"
+                value={l.expected}
+                onChange={(e) =>
+                  setLines((ls) => ls.map((x, j) => (j === i ? { ...x, expected: Number(e.target.value) || 0 } : x)))
+                }
+              />
+              <button className="link" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>✕</button>
+            </div>
+          ))}
+          <div className="inb-add">
+            <input placeholder="SKU" value={skuInput} onChange={(e) => setSkuInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLine()} />
+            <input className="fqty" type="number" placeholder="Qty" value={qtyInput} onChange={(e) => setQtyInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLine()} />
+            <button className="secondary small-btn" onClick={addLine}>Add</button>
+          </div>
+
+          {shipment?.timeline?.length > 0 && (
+            <>
+              <div className="lane-head">Timeline</div>
+              {[...shipment.timeline].reverse().map((t, i) => (
+                <div className="muted small tl-row" key={i}>
+                  {fmtDate(t.at?.slice(0, 10))} — {t.status}{t.note ? ` · ${t.note}` : ''} {t.by ? `(${t.by})` : ''}
+                </div>
+              ))}
+            </>
+          )}
+
+          {err && <div className="err">{err}</div>}
+          <button className="primary" disabled={busy} onClick={save}>
+            {busy ? 'Saving…' : 'Save shipment'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The QA intake (replaces the Google Sheet): per line — counted, damaged, and bin locations
+// with qty per bin (multi-bin, like Location1..4 on the sheet). Good units (counted − damaged)
+// go up in Shopify at Miami; bin codes go to the product's warehouse.bin_location metafield.
+function ReceiveModal({ shipment, onClose, onDone }) {
+  const [rows, setRows] = useState(
+    shipment.lines
+      .filter((l) => !l.receivedAt)
+      .map((l) => ({
+        id: l.id,
+        sku: l.sku,
+        title: l.title,
+        expected: l.expected,
+        received: l.expected,
+        damaged: 0,
+        bins: [{ bin: '', qty: l.expected }],
+      }))
+  );
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const setRow = (i, patch) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const setBin = (i, bi, patch) =>
+    setRows((rs) =>
+      rs.map((r, j) =>
+        j === i ? { ...r, bins: r.bins.map((b, k) => (k === bi ? { ...b, ...patch } : b)) } : r
+      )
+    );
+
+  const submit = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const body = {
+        lines: rows.map((r) => ({
+          id: r.id,
+          received: r.received,
+          damaged: r.damaged,
+          bins: r.bins.filter((b) => b.bin && b.qty > 0),
+        })),
+      };
+      await api.inboundReceive(shipment.id, body);
+      onDone();
+    } catch (e) {
+      setErr(e?.message || 'Receive failed');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="cart-overlay" onClick={onClose}>
+      <div className="cart" onClick={(e) => e.stopPropagation()}>
+        <div className="cart-head">
+          <strong>Receive · {shipment.origin || shipment.reference || 'shipment'}</strong>
+          <button className="x" onClick={onClose}>✕</button>
+        </div>
+        <div className="cart-body">
+          {rows.length === 0 && <div className="muted center">All lines already received.</div>}
+          {rows.map((r, i) => {
+            const good = Math.max(0, r.received - r.damaged);
+            return (
+              <div className="rcv-line" key={r.id}>
+                <div className="rcv-head">
+                  <span className="fsku">{r.sku}</span>
+                  <span className="small muted">{r.title || ''} · expected {r.expected}</span>
+                </div>
+                <div className="rcv-nums">
+                  <label>
+                    Counted
+                    <input className="fqty" type="number" min="0" value={r.received} onChange={(e) => setRow(i, { received: Number(e.target.value) || 0 })} />
+                  </label>
+                  <label>
+                    Damaged
+                    <input className="fqty" type="number" min="0" value={r.damaged} onChange={(e) => setRow(i, { damaged: Number(e.target.value) || 0 })} />
+                  </label>
+                  <span className="rcv-good">→ {good} to shelf</span>
+                </div>
+                <div className="rcv-bins">
+                  {r.bins.map((b, bi) => (
+                    <span className="rcv-bin" key={bi}>
+                      <input placeholder="Bin (1D4)" value={b.bin} onChange={(e) => setBin(i, bi, { bin: e.target.value })} />
+                      <input className="fqty" type="number" min="0" value={b.qty} onChange={(e) => setBin(i, bi, { qty: Number(e.target.value) || 0 })} />
+                    </span>
+                  ))}
+                  <button className="link" onClick={() => setRow(i, { bins: [...r.bins, { bin: '', qty: 0 }] })}>
+                    + bin
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          {err && <div className="err">{err}</div>}
+          {rows.length > 0 && (
+            <button className="primary" disabled={busy} onClick={submit}>
+              {busy ? 'Receiving…' : 'Confirm intake → update stock'}
+            </button>
+          )}
+          <div className="muted small">
+            Good units (counted − damaged) are added to Miami stock in Shopify; bin codes update
+            the product's warehouse location field. If Shopify rejects the write (scope pending),
+            it's recorded and flagged for retry — nothing is lost.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

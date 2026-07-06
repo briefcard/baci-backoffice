@@ -300,6 +300,32 @@ main { padding-bottom: 96px; }
 .co-explain h3 { margin: 0 0 8px; }
 .co-explain p { margin: 0 0 10px; }
 
+/* ---- Inbound shipments (admin back office) ---- */
+.inbound { padding: 12px; display: grid; gap: 10px; }
+.lane-head { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 2px 2px; }
+.ship-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.ship-row.is-done { opacity: .6; }
+.ship-main { min-width: 0; display: grid; gap: 3px; cursor: pointer; flex: 1; }
+.inbound-field { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.inbound-field span { width: 60px; font-weight: 700; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.inbound-field input, .inbound-field select { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; background: #fff; font-family: inherit; }
+.inbound-row2 { grid-template-columns: 1fr 1fr; }
+.inb-line { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.inb-line-main { flex: 1; min-width: 0; display: grid; }
+.err-inline { color: var(--out); }
+.inb-add { display: flex; gap: 8px; margin-top: 8px; }
+.inb-add input:first-child { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }
+.small-btn { width: auto; padding: 10px 14px; font-size: 14px; }
+.tl-row { padding: 2px 0; }
+.rcv-line { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 8px; display: grid; gap: 8px; background: #fafafa; }
+.rcv-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.rcv-nums { display: flex; gap: 12px; align-items: flex-end; }
+.rcv-nums label { display: grid; gap: 3px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.rcv-good { font-weight: 800; color: var(--in); padding-bottom: 10px; }
+.rcv-bins { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rcv-bin { display: inline-flex; gap: 4px; }
+.rcv-bin input:first-child { width: 90px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+
 /* ---- Pending pool (rep view) ---- */
 .pending { padding: 12px; display: grid; gap: 10px; }
 .pend-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }

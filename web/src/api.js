@@ -30,6 +30,10 @@ export const api = {
   publicFormCatalog: (code) => jget(`/api/form/catalog?code=${encodeURIComponent(code)}`),
   publicFormSubmit: (code, payload) => jpost(`/api/form/submit?code=${encodeURIComponent(code)}`, payload),
   pendingList: () => jget('/api/pending'),
+  inboundList: () => jget('/api/inbound'),
+  inboundCreate: (body) => jpost('/api/inbound', body),
+  inboundUpdate: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}`, body),
+  inboundReceive: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}/receive`, body),
   confirmPending: (id, payload) => jpost(`/api/pending/${encodeURIComponent(id)}/confirm`, payload),
   dismissPending: (id) => jpost(`/api/pending/${encodeURIComponent(id)}/dismiss`),
 };

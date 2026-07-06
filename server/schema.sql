@@ -60,6 +60,42 @@ CREATE TABLE IF NOT EXISTS pending_orders (
 );
 CREATE INDEX IF NOT EXISTS idx_pending_orders_status ON pending_orders(status);
 
+-- Inbound shipments (back-office / admin only): the logistics truth for stock on the way —
+-- origin facility, references, ETA, status timeline, and per-SKU lines with QA'd receiving
+-- (counted / damaged / binned). Replaces the Google-Sheet intake process.
+CREATE TABLE IF NOT EXISTS inbound_shipments (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'ordered', -- ordered | in_transit | arrived | receiving | received | cancelled
+  origin TEXT,                            -- e.g. "Baci Milano HQ (Italy)", "Factory — Guangdong"
+  reference TEXT,                         -- PO / invoice / container #
+  carrier TEXT,
+  tracking TEXT,
+  eta DATE,
+  notes TEXT,
+  timeline JSONB NOT NULL DEFAULT '[]',   -- [{at, status, note, by}]
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_inbound_shipments_status ON inbound_shipments(status);
+
+CREATE TABLE IF NOT EXISTS inbound_lines (
+  id TEXT PRIMARY KEY,
+  shipment_id TEXT NOT NULL REFERENCES inbound_shipments(id) ON DELETE CASCADE,
+  variant_id TEXT,                        -- Shopify variant gid (null if SKU didn't match)
+  sku TEXT NOT NULL,
+  title TEXT,
+  expected INTEGER NOT NULL DEFAULT 0,
+  received INTEGER,                       -- counted at intake (null = not yet received)
+  damaged INTEGER NOT NULL DEFAULT 0,     -- QA rejects ("items unavailable")
+  bins JSONB NOT NULL DEFAULT '[]',       -- [{bin: "1D4", qty: 6}] — multi-bin like the sheet
+  shopify_synced BOOLEAN NOT NULL DEFAULT false,
+  sync_error TEXT,
+  received_at TIMESTAMPTZ,
+  received_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_inbound_lines_shipment ON inbound_lines(shipment_id);
+
 -- Seed your ~10 reps (edit, then re-run `npm run migrate` or run manually):
 -- INSERT INTO reps (email, name) VALUES
 --   ('jane@bacimilanousa.com', 'Jane Doe'),
