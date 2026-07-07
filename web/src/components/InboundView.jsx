@@ -32,9 +32,38 @@ const daysLate = (eta) => {
 
 export function InboundView({ snapshot }) {
   const [ships, setShips] = useState(null);
-  const [editing, setEditing] = useState(null); // shipment object | 'new'
+  const [editing, setEditing] = useState(null); // shipment object | 'new' | {prefill}
   const [receiving, setReceiving] = useState(null); // shipment object
+  const [parsing, setParsing] = useState(false);
   const [err, setErr] = useState('');
+
+  // Import a supplier ORD / packing-list document → parsed lines open in the editor for review.
+  const importFile = async (file) => {
+    if (!file) return;
+    setParsing(true);
+    setErr('');
+    try {
+      const { parsed } = await api.inboundParse(file);
+      setEditing({
+        prefill: {
+          origin: parsed.origin || '',
+          reference: parsed.reference || '',
+          notes: `Imported from ${parsed.filename} — ${parsed.matchedCount} matched, ${parsed.unmatchedCount} unmatched`,
+          lines: parsed.lines.map((l) => ({
+            id: crypto.randomUUID(),
+            sku: l.sku,
+            variantId: l.variantId,
+            title: l.title,
+            expected: l.expected,
+          })),
+        },
+      });
+    } catch (e) {
+      setErr(e?.message || 'Could not parse the file');
+    } finally {
+      setParsing(false);
+    }
+  };
 
   const load = async () => {
     try {
@@ -71,9 +100,24 @@ export function InboundView({ snapshot }) {
             {open.length} open · {open.reduce((n, x) => n + totalUnits(x), 0)} units on the way
           </span>
         </div>
-        <button className="primary small" onClick={() => setEditing('new')}>
-          + New shipment
-        </button>
+        <span className="inb-head-actions">
+          <label className="secondary small-btn inb-import">
+            {parsing ? 'Parsing…' : '📄 Import ORD/PKLIST'}
+            <input
+              type="file"
+              accept=".pdf,.xlsx,.xls"
+              hidden
+              disabled={parsing}
+              onChange={(e) => {
+                importFile(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          <button className="primary small" onClick={() => setEditing('new')}>
+            + New shipment
+          </button>
+        </span>
       </div>
       {err && <div className="err">{err}</div>}
 
@@ -124,7 +168,8 @@ export function InboundView({ snapshot }) {
 
       {editing && (
         <ShipmentEditor
-          shipment={editing === 'new' ? null : editing}
+          shipment={editing === 'new' || editing.prefill ? null : editing}
+          prefill={editing.prefill || null}
           skuIndex={skuIndex}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -147,16 +192,17 @@ export function InboundView({ snapshot }) {
   );
 }
 
-function ShipmentEditor({ shipment, skuIndex, onClose, onSaved }) {
-  const [origin, setOrigin] = useState(shipment?.origin || '');
-  const [reference, setReference] = useState(shipment?.reference || '');
-  const [carrier, setCarrier] = useState(shipment?.carrier || '');
-  const [tracking, setTracking] = useState(shipment?.tracking || '');
-  const [eta, setEta] = useState(shipment?.eta || '');
-  const [status, setStatus] = useState(shipment?.status || 'ordered');
+function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
+  const init = shipment || prefill;
+  const [origin, setOrigin] = useState(init?.origin || '');
+  const [reference, setReference] = useState(init?.reference || '');
+  const [carrier, setCarrier] = useState(init?.carrier || '');
+  const [tracking, setTracking] = useState(init?.tracking || '');
+  const [eta, setEta] = useState(init?.eta || '');
+  const [status, setStatus] = useState(init?.status || 'ordered');
   const [statusNote, setStatusNote] = useState('');
-  const [notes, setNotes] = useState(shipment?.notes || '');
-  const [lines, setLines] = useState(shipment?.lines || []);
+  const [notes, setNotes] = useState(init?.notes || '');
+  const [lines, setLines] = useState(init?.lines || []);
   const [skuInput, setSkuInput] = useState('');
   const [qtyInput, setQtyInput] = useState('');
   const [busy, setBusy] = useState(false);

@@ -34,6 +34,13 @@ export const api = {
   inboundCreate: (body) => jpost('/api/inbound', body),
   inboundUpdate: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}`, body),
   inboundReceive: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}/receive`, body),
+  inboundParse: async (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch('/api/inbound/parse', { method: 'POST', credentials: 'include', body: fd });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error || `parse → ${r.status}`);
+    return r.json();
+  },
   confirmPending: (id, payload) => jpost(`/api/pending/${encodeURIComponent(id)}/confirm`, payload),
   dismissPending: (id) => jpost(`/api/pending/${encodeURIComponent(id)}/dismiss`),
 };

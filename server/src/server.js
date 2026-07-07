@@ -22,6 +22,8 @@ import {
   refreshRollup,
   SHIPMENT_STATUSES,
 } from './inbound.js';
+import multipart from '@fastify/multipart';
+import { parseIntakeFile } from './intake.js';
 import { addClient, clientCount, broadcast } from './stream.js';
 import { verifyShopifyHmac, handleInventoryLevelUpdate } from './webhooks.js';
 import {
@@ -40,6 +42,7 @@ const app = Fastify({ logger: true });
 
 await app.register(cors, { origin: cfg.appUrl, credentials: true });
 await app.register(cookie);
+await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
 
 // Keep the raw body for webhook HMAC verification while still parsing JSON.
 app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -120,6 +123,20 @@ app.post('/api/inbound/:id', { preHandler: requireAuth }, async (req, reply) => 
   if (!ship) return reply.code(404).send({ error: 'not found' });
   await refreshRollup();
   return { ok: true, shipment: ship };
+});
+
+// Parse a supplier ORD/PKLIST document (PDF or XLSX) into shipment lines for review.
+app.post('/api/inbound/parse', { preHandler: requireAuth }, async (req, reply) => {
+  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+  const file = await req.file();
+  if (!file) return reply.code(400).send({ error: 'no file' });
+  try {
+    const buf = await file.toBuffer();
+    return { ok: true, parsed: await parseIntakeFile(file.filename, buf) };
+  } catch (err) {
+    req.log.error({ err }, 'intake parse failed');
+    return reply.code(400).send({ error: `Could not parse ${file.filename}: ${err?.message || err}` });
+  }
 });
 
 // QA receive: counted / damaged / bins per line → good units up in Shopify (or queued on error).

@@ -316,6 +316,8 @@ main { padding-bottom: 96px; }
 .inb-add { display: flex; gap: 8px; margin-top: 8px; }
 .inb-add input:first-child { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }
 .small-btn { width: auto; padding: 10px 14px; font-size: 14px; }
+.inb-head-actions { display: flex; gap: 8px; align-items: center; }
+.inb-import { display: inline-block; cursor: pointer; }
 .tl-row { padding: 2px 0; }
 .rcv-line { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 8px; display: grid; gap: 8px; background: #fafafa; }
 .rcv-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
