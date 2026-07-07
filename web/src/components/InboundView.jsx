@@ -32,6 +32,7 @@ const daysLate = (eta) => {
 
 export function InboundView({ snapshot }) {
   const [ships, setShips] = useState(null);
+  const [mode, setMode] = useState('board'); // board | items
   const [editing, setEditing] = useState(null); // shipment object | 'new' | {prefill}
   const [receiving, setReceiving] = useState(null); // shipment object
   const [parsing, setParsing] = useState(false);
@@ -134,6 +135,18 @@ export function InboundView({ snapshot }) {
       </div>
       {err && <div className="err">{err}</div>}
 
+      <div className="tabs inb-mode">
+        <button className={mode === 'board' ? 'tab active' : 'tab'} onClick={() => setMode('board')}>
+          Shipments board
+        </button>
+        <button className={mode === 'items' ? 'tab active' : 'tab'} onClick={() => setMode('items')}>
+          Items on the way
+        </button>
+      </div>
+
+      {mode === 'items' ? (
+        <ItemsView ships={ships} snapshot={snapshot} />
+      ) : (
       <KanbanBoard
         ships={ships}
         onMove={async (ship, status) => {
@@ -149,6 +162,7 @@ export function InboundView({ snapshot }) {
         onOpen={setEditing}
         onReceive={setReceiving}
       />
+      )}
 
       {ships.length === 0 && (
         <div className="center muted">No shipments yet — add the ones currently on the water/air.</div>
@@ -181,6 +195,154 @@ export function InboundView({ snapshot }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// Item-level view of everything on the way: photo, collection, current stock, expected units,
+// and each shipment's stage + ETA — searchable, filterable, sortable. Built for talking to a
+// customer: "what's coming, when?" — plus the flip side: what's LOW with nothing ordered yet.
+function ItemsView({ ships, snapshot }) {
+  const lowT = snapshot?.config?.lowThreshold ?? 10;
+  const [q, setQ] = useState('');
+  const [coll, setColl] = useState('');
+  const [filter, setFilter] = useState('incoming'); // incoming | needs | all
+  const [sort, setSort] = useState('eta');
+
+  const rows = useMemo(() => {
+    const OPEN = ['ordered', 'in_transit', 'arrived', 'receiving'];
+    const byVariant = new Map();
+    for (const ship of ships || []) {
+      if (!OPEN.includes(ship.status)) continue;
+      for (const l of ship.lines) {
+        if (!l.variantId || l.receivedAt) continue;
+        if (!byVariant.has(l.variantId)) byVariant.set(l.variantId, []);
+        byVariant.get(l.variantId).push({
+          ref: ship.reference || ship.origin || '—',
+          status: ship.status,
+          eta: ship.eta,
+          qty: l.expected,
+        });
+      }
+    }
+    const out = [];
+    for (const p of snapshot?.products || []) {
+      for (const v of p.variants) {
+        const inc = byVariant.get(v.id) || [];
+        const expected = inc.reduce((n, x) => n + x.qty, 0);
+        const available = v.available ?? 0;
+        const etas = inc.map((x) => x.eta).filter(Boolean).sort();
+        out.push({
+          key: v.id,
+          image: p.image,
+          title: p.title,
+          sku: v.sku,
+          collection: p.design || p.collections?.[0]?.title || '—',
+          available,
+          expected,
+          shipments: inc,
+          eta: etas[0] || null,
+          low: available < lowT,
+          needsOrder: available < lowT && expected === 0,
+        });
+      }
+    }
+    return out;
+  }, [ships, snapshot, lowT]);
+
+  const collections = useMemo(() => [...new Set(rows.map((r) => r.collection))].sort(), [rows]);
+
+  const shown = rows
+    .filter((r) =>
+      filter === 'incoming' ? r.expected > 0 : filter === 'needs' ? r.needsOrder : true
+    )
+    .filter((r) => !coll || r.collection === coll)
+    .filter(
+      (r) =>
+        !q.trim() ||
+        r.title.toLowerCase().includes(q.trim().toLowerCase()) ||
+        (r.sku || '').toLowerCase().includes(q.trim().toLowerCase())
+    )
+    .sort((a, b) => {
+      if (sort === 'eta') return (a.eta || '9999') < (b.eta || '9999') ? -1 : 1;
+      if (sort === 'expected') return b.expected - a.expected;
+      if (sort === 'stock') return a.available - b.available;
+      return a.title.localeCompare(b.title);
+    });
+
+  const STATUS_SHORT = { ordered: 'Ordered', in_transit: 'Transit', arrived: 'Arrived', receiving: 'Receiving' };
+
+  return (
+    <div className="items-view">
+      <div className="items-filters">
+        <input className="search" placeholder="Search item or SKU…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="items-filter-row">
+          <div className="chips">
+            <button className={filter === 'incoming' ? 'chip on' : 'chip'} onClick={() => setFilter('incoming')}>
+              On the way
+            </button>
+            <button className={filter === 'needs' ? 'chip on' : 'chip'} onClick={() => setFilter('needs')}>
+              ⚠ Low, nothing ordered
+            </button>
+            <button className={filter === 'all' ? 'chip on' : 'chip'} onClick={() => setFilter('all')}>
+              All items
+            </button>
+          </div>
+          <select value={coll} onChange={(e) => setColl(e.target.value)}>
+            <option value="">All collections</option>
+            {collections.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="eta">Soonest ETA</option>
+            <option value="expected">Most expected</option>
+            <option value="stock">Lowest stock</option>
+            <option value="title">A–Z</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="muted small items-count">
+        {shown.length} item{shown.length !== 1 ? 's' : ''}
+        {filter === 'incoming' ? ` · ${shown.reduce((n, r) => n + r.expected, 0)} units on the way` : ''}
+      </div>
+
+      {shown.map((r) => (
+        <div className="item-row" key={r.key}>
+          {r.image ? <img className="fimg" src={r.image} alt="" loading="lazy" /> : <div className="fimg ph" />}
+          <div className="item-main">
+            <div className="item-line1">
+              <strong>{r.title}</strong>
+            </div>
+            <div className="muted small">
+              {r.sku} · {r.collection}
+            </div>
+            <div className="item-chips">
+              {r.shipments.map((sh, i) => (
+                <span className="chip ship-chip" key={i}>
+                  {STATUS_SHORT[sh.status] || sh.status} · {sh.qty}u{sh.eta ? ` · ${fmtDate(sh.eta)}` : ''}
+                  {sh.eta && daysLate(sh.eta) > 0 ? ` · ${daysLate(sh.eta)}d late` : ''}
+                </span>
+              ))}
+              {r.needsOrder && <span className="badge pay-unpaid">needs ordering</span>}
+            </div>
+          </div>
+          <div className="item-nums">
+            <div className={`stocknum ${r.available <= 0 ? 'out' : r.low ? 'low' : 'in'}`}>
+              <span className="num">{Math.max(r.available, 0)}</span>
+              <span className="lbl">in stock</span>
+            </div>
+            {r.expected > 0 && (
+              <div className="item-expected">
+                +{r.expected}
+                <span>{r.eta ? fmtDate(r.eta) : 'expected'}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+      {shown.length === 0 && <div className="center muted">Nothing matches.</div>}
     </div>
   );
 }

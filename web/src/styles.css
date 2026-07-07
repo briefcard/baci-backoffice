@@ -329,6 +329,21 @@ main { padding-bottom: 96px; }
 .kmove button:disabled { opacity: .3; }
 .kmove .krcv { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 700; flex: 1; }
 .badge.pay-unpaid { background: #fde8e8; color: var(--out); }
+
+/* Items-on-the-way view */
+.inb-mode { margin: 2px 0 6px; }
+.items-view { display: grid; gap: 8px; }
+.items-filters { display: grid; gap: 8px; }
+.items-filter-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.items-filter-row select { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; background: #fff; }
+.items-count { padding: 0 2px; }
+.item-row { display: flex; gap: 10px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+.item-main { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.item-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ship-chip { font-size: 11.5px; background: #eef4ff; border: none; color: #1a56c4; font-weight: 700; cursor: default; }
+.item-nums { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+.item-expected { font-weight: 800; color: #1a56c4; display: grid; text-align: center; font-size: 16px; }
+.item-expected span { font-size: 10px; font-weight: 600; color: var(--muted); }
 .badge.pay-deposit { background: #fff4d6; color: var(--low); }
 .badge.pay-paid { background: #e6f4ea; color: var(--in); }
 .inb-import { display: inline-block; cursor: pointer; }
