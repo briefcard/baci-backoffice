@@ -44,11 +44,23 @@ export function InboundView({ snapshot }) {
     setErr('');
     try {
       const { parsed } = await api.inboundParse(file);
+      // WHEN / WHO / WHERE pulled from the document itself → prefilled into the shipment record.
+      const noteLines = [
+        `Imported from ${parsed.filename} — ${parsed.matchedCount} matched, ${parsed.unmatchedCount} unmatched`,
+        parsed.docDate && `Document date: ${parsed.docDate}`,
+        parsed.customerPo && `Customer PO: ${parsed.customerPo}`,
+        parsed.fob && `FOB: ${parsed.fob}`,
+        parsed.madeIn?.length && `Goods made in: ${parsed.madeIn.join(', ')}`,
+        parsed.linked?.length && `Linked doc(s): ${parsed.linked.join(', ')}`,
+        parsed.supplierNote && `Supplier note: ${parsed.supplierNote}`,
+      ].filter(Boolean);
       setEditing({
         prefill: {
           origin: parsed.origin || '',
           reference: parsed.reference || '',
-          notes: `Imported from ${parsed.filename} — ${parsed.matchedCount} matched, ${parsed.unmatchedCount} unmatched`,
+          // A packing list means goods are packed & moving; a pro-forma is still at "ordered".
+          status: parsed.docType === 'packing_list' ? 'in_transit' : 'ordered',
+          notes: noteLines.join('\n'),
           lines: parsed.lines.map((l) => ({
             id: crypto.randomUUID(),
             sku: l.sku,

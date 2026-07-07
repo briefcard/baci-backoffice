@@ -81,7 +81,7 @@ export async function createShipment(by, body = {}) {
     reference: s(body.reference),
     carrier: s(body.carrier, 100),
     tracking: s(body.tracking, 200),
-    eta: s(body.eta, 10),
+    eta: body.eta ? s(body.eta, 10) : null,
     notes: s(body.notes, 2000),
     timeline: [{ at: now, status: body.status || 'ordered', note: 'Created', by }],
     createdBy: by,
@@ -175,7 +175,7 @@ export async function updateShipment(id, by, body = {}) {
   for (const k of ['origin', 'reference', 'carrier', 'tracking', 'notes']) {
     if (body[k] !== undefined) next[k] = s(body[k], k === 'notes' ? 2000 : 300);
   }
-  if (body.eta !== undefined) next.eta = s(body.eta, 10);
+  if (body.eta !== undefined) next.eta = body.eta ? s(body.eta, 10) : null;
   if (body.status && SHIPMENT_STATUSES.includes(body.status) && body.status !== ship.status) {
     next.status = body.status;
     next.timeline = [...ship.timeline, { at: now, status: body.status, note: s(body.statusNote, 500) || null, by }];

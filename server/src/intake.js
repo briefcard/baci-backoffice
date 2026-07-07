@@ -38,7 +38,24 @@ function extractMeta(text) {
     : /S\.?R\.?L\.?|Corridoni|20122 Milano/i.test(text)
       ? 'Baci Milano — Italy'
       : null;
-  return { reference: ref, origin };
+
+  // WHEN: document date (dd/mm/yyyy on both ORD and PKLIST).
+  const dm = text.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+  const docDate = dm ? `${dm[3]}-${dm[2]}-${dm[1]}` : null;
+  // WHERE: FOB port + where the goods are made (from the Made In column values).
+  const fob = text.match(/FOB\s+([A-Z][A-Z ]{2,18}?)(?=\s*(?:\n|Order|Bank|$))/)?.[1]?.trim() || null;
+  const madeIn = [...new Set(text.match(/\b(TURKEY|CHINA|BANGLADESH|ITALY|INDIA|VIETNAM|PORTUGAL)\b/g) || [])];
+  // Linked documents (a packing list references its order #s) + doc type + supplier notes.
+  // Exclude fragments of dd/mm/yyyy dates (e.g. "01/2026" out of "27/01/2026") from linked refs.
+  const dateFrags = new Set([...text.matchAll(/\d{2}\/(\d{2}\/\d{4})/g)].map((m) => m[1]));
+  const linked = [...new Set([...text.matchAll(/\b(\d{2,4}\/\d{4})\b/g)].map((m) => m[1]))].filter(
+    (r) => r !== ref && !dateFrags.has(r)
+  );
+  const docType = /PRO-?FORMA|Order number/i.test(text) ? 'order' : /Packing list/i.test(text) ? 'packing_list' : 'unknown';
+  const supplierNote = text.match(/(MERCE MAGAZZINO [A-Z]+|ORDINE MAGAZZINO [A-Z]+)/)?.[1] || null;
+  const customerPo = text.match(/Customer PO\s*#?\s*[:\s]\s*([A-Z0-9-]{2,20})/i)?.[1] || null;
+
+  return { reference: ref, origin, docDate, fob, madeIn, linked, docType, supplierNote, customerPo };
 }
 
 // ---- XLSX (SheetJS) ----
