@@ -110,6 +110,7 @@ query Snapshot($cursor: String, $loc: ID!) {
       tags
       collections(first: 12) { nodes { handle title } }
       substitutes: metafield(namespace: "b2b", key: "substitutes") { value }
+      binLoc: metafield(namespace: "warehouse", key: "bin_location") { value }
       variants(first: 40) {
         nodes {
           id
@@ -184,6 +185,7 @@ export async function buildSnapshot() {
           .map((c) => ({ handle: c.handle, title: c.title })),
         image: p.featuredImage?.url || null,
         substitutes: parseList(p.substitutes?.value),
+        binLocation: parseList(p.binLoc?.value),
         variants,
       });
     }

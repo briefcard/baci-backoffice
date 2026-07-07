@@ -168,7 +168,11 @@ export function InboundView({ snapshot }) {
       )}
       {receiving && (
         <ReceiveModal
-          knownBins={[...new Set(ships.flatMap((x) => x.lines.flatMap((l) => (l.bins || []).map((b) => b.bin))))].sort()}
+          knownBins={[...new Set([
+            ...ships.flatMap((x) => x.lines.flatMap((l) => (l.bins || []).map((b) => b.bin))),
+            ...(snapshot?.products || []).flatMap((p) => p.binLocation || []),
+          ])].sort()}
+          skuIndex={skuIndex}
           shipment={receiving}
           onClose={() => setReceiving(null)}
           onDone={() => {
@@ -410,7 +414,7 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
 // knownBins = every location ID used so far, offered as type-ahead suggestions. Any NEW code
 // typed here is accepted as-is (normalized to uppercase server-side) and automatically joins
 // the suggestion list for future receives — no separate "manage locations" step needed.
-function ReceiveModal({ shipment, onClose, onDone, knownBins = [] }) {
+function ReceiveModal({ shipment, onClose, onDone, knownBins = [], skuIndex }) {
   const [rows, setRows] = useState(
     shipment.lines
       .filter((l) => !l.receivedAt)
@@ -471,6 +475,9 @@ function ReceiveModal({ shipment, onClose, onDone, knownBins = [] }) {
           {rows.length === 0 && <div className="muted center">All lines already received.</div>}
           {rows.map((r, i) => {
             const good = Math.max(0, r.received - r.damaged);
+            // Placeholder = where this SKU currently lives in Shopify (warehouse.bin_location),
+            // so restocking the same shelf is zero-typing; a new location can always be typed.
+            const cur = skuIndex?.get((r.sku || '').toLowerCase())?.product?.binLocation || [];
             return (
               <div className="rcv-line" key={r.id}>
                 <div className="rcv-head">
@@ -493,7 +500,7 @@ function ReceiveModal({ shipment, onClose, onDone, knownBins = [] }) {
                     <span className="rcv-bin" key={bi}>
                       <input
                         list="bin-options"
-                        placeholder="Location (1D4)"
+                        placeholder={cur[bi] || cur.join(', ') || 'Location (1D4)'}
                         value={b.bin}
                         onChange={(e) => setBin(i, bi, { bin: e.target.value })}
                       />
