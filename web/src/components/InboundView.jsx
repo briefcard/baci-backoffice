@@ -60,6 +60,7 @@ export function InboundView({ snapshot }) {
           reference: parsed.reference || '',
           // A packing list means goods are packed & moving; a pro-forma is still at "ordered".
           status: parsed.docType === 'packing_list' ? 'in_transit' : 'ordered',
+          invoiceTotal: parsed.invoiceTotal ?? '',
           notes: noteLines.join('\n'),
           lines: parsed.lines.map((l) => ({
             id: crypto.randomUUID(),
@@ -133,46 +134,21 @@ export function InboundView({ snapshot }) {
       </div>
       {err && <div className="err">{err}</div>}
 
-      {LANES.map(([key, label]) => {
-        const list = ships.filter((x) => x.status === key);
-        if (!list.length) return null;
-        return (
-          <div key={key}>
-            <div className="lane-head">
-              {label} <span className="muted small">{list.length}</span>
-            </div>
-            {list.map((ship) => {
-              const late = ship.status !== 'received' ? daysLate(ship.eta) : 0;
-              return (
-                <div className={`ship-row ${ship.status === 'received' ? 'is-done' : ''}`} key={ship.id}>
-                  <div className="ship-main" onClick={() => setEditing(ship)}>
-                    <div className="pend-line1">
-                      <strong>{ship.origin || 'Shipment'}</strong>
-                      {ship.reference && <span className="muted small">#{ship.reference}</span>}
-                      {late > 0 && <span className="badge warn">{late}d late</span>}
-                    </div>
-                    <div className="muted small">
-                      ETA {fmtDate(ship.eta)} · {ship.lines.length} SKUs · {totalUnits(ship)} units
-                      {ship.carrier ? ` · ${ship.carrier}` : ''}
-                      {ship.lines.some((l) => l.syncError) ? ' · ⚠ sync pending' : ''}
-                    </div>
-                  </div>
-                  <div className="pend-actions">
-                    {(ship.status === 'arrived' || ship.status === 'receiving' || ship.status === 'in_transit') && (
-                      <button className="primary small" onClick={() => setReceiving(ship)}>
-                        Receive ▸
-                      </button>
-                    )}
-                    <button className="link" onClick={() => setEditing(ship)}>
-                      Details
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
+      <KanbanBoard
+        ships={ships}
+        onMove={async (ship, status) => {
+          const label = LANES.find(([k]) => k === status)?.[1] || status;
+          if (!window.confirm(`Confirm: move ${ship.reference || ship.origin || 'shipment'} to "${label}"?`)) return;
+          try {
+            await api.inboundUpdate(ship.id, { status, statusNote: 'Moved on board' });
+          } catch (e) {
+            setErr(e?.message || 'Move failed');
+          }
+          load();
+        }}
+        onOpen={setEditing}
+        onReceive={setReceiving}
+      />
 
       {ships.length === 0 && (
         <div className="center muted">No shipments yet — add the ones currently on the water/air.</div>
@@ -204,6 +180,86 @@ export function InboundView({ snapshot }) {
   );
 }
 
+const money0 = (n) =>
+  n == null ? null : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(n);
+
+function PayBadge({ ship }) {
+  const m = {
+    paid: ['pay-paid', 'PAID'],
+    deposit_paid: ['pay-deposit', ship.paidAmount != null ? `DEP ${money0(ship.paidAmount)}` : 'DEPOSIT PAID'],
+    unpaid: ['pay-unpaid', 'UNPAID'],
+  }[ship.paymentStatus || 'unpaid'];
+  return <span className={`badge ${m[0]}`}>{m[1]}</span>;
+}
+
+// Kanban board: columns per status, cards draggable between them (desktop) with ◀ ▶ buttons as
+// the touch-friendly equivalent. Every move asks for confirmation — moving to "In transit" etc.
+// is a deliberate act that stamps the timeline. Receiving/Received are guarded: stock only moves
+// through the QA Receive flow, so drops into those columns open it instead of skipping QA.
+function KanbanBoard({ ships, onMove, onOpen, onReceive }) {
+  const cols = LANES.filter(([k]) => k !== 'cancelled');
+  const byCol = (k) => ships.filter((x) => x.status === k);
+
+  const requestMove = (ship, target) => {
+    if (target === ship.status) return;
+    if (target === 'received' || target === 'receiving') return onReceive(ship); // QA gate
+    onMove(ship, target);
+  };
+
+  return (
+    <div className="kanban">
+      {cols.map(([key, label]) => (
+        <div
+          key={key}
+          className="kcol"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const id = e.dataTransfer.getData('text/ship');
+            const ship = ships.find((x) => x.id === id);
+            if (ship) requestMove(ship, key);
+          }}
+        >
+          <div className="kcol-head">
+            {label} <span className="muted small">{byCol(key).length}</span>
+          </div>
+          {byCol(key).map((ship) => {
+            const late = key !== 'received' ? daysLate(ship.eta) : 0;
+            const idx = cols.findIndex(([k]) => k === key);
+            return (
+              <div
+                key={ship.id}
+                className="kcard"
+                draggable
+                onDragStart={(e) => e.dataTransfer.setData('text/ship', ship.id)}
+              >
+                <div className="kcard-top" onClick={() => onOpen(ship)}>
+                  <strong>{ship.reference || ship.origin || 'Shipment'}</strong>
+                  <PayBadge ship={ship} />
+                </div>
+                <div className="muted small" onClick={() => onOpen(ship)}>
+                  {ship.origin && ship.reference ? `${ship.origin} · ` : ''}
+                  ETA {fmtDate(ship.eta)}
+                  {late > 0 ? ` · ${late}d late` : ''} · {ship.lines.reduce((n, l) => n + (l.expected || 0), 0)}u
+                  {ship.invoiceTotal != null ? ` · ${money0(ship.invoiceTotal)}` : ''}
+                  {ship.lines.some((l) => l.syncError) ? ' · ⚠' : ''}
+                </div>
+                <div className="kmove">
+                  <button disabled={idx === 0} onClick={() => requestMove(ship, cols[idx - 1]?.[0])}>◀</button>
+                  {(key === 'in_transit' || key === 'arrived' || key === 'receiving') && (
+                    <button className="krcv" onClick={() => onReceive(ship)}>Receive</button>
+                  )}
+                  <button disabled={idx === cols.length - 1} onClick={() => requestMove(ship, cols[idx + 1]?.[0])}>▶</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
   const init = shipment || prefill;
   const [origin, setOrigin] = useState(init?.origin || '');
@@ -214,6 +270,9 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
   const [status, setStatus] = useState(init?.status || 'ordered');
   const [statusNote, setStatusNote] = useState('');
   const [notes, setNotes] = useState(init?.notes || '');
+  const [paymentStatus, setPaymentStatus] = useState(init?.paymentStatus || 'unpaid');
+  const [paidAmount, setPaidAmount] = useState(init?.paidAmount ?? '');
+  const [invoiceTotal, setInvoiceTotal] = useState(init?.invoiceTotal ?? '');
   const [lines, setLines] = useState(init?.lines || []);
   const [skuInput, setSkuInput] = useState('');
   const [qtyInput, setQtyInput] = useState('');
@@ -242,7 +301,7 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
     setBusy(true);
     setErr('');
     try {
-      const body = { origin, reference, carrier, tracking, eta, notes, status, statusNote, lines };
+      const body = { origin, reference, carrier, tracking, eta, notes, status, statusNote, lines, paymentStatus, paidAmount, invoiceTotal };
       if (shipment) await api.inboundUpdate(shipment.id, body);
       else await api.inboundCreate(body);
       onSaved();
@@ -281,6 +340,18 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
               </select>
             </label>
             <input placeholder="Status note (e.g. cleared customs 7/2)" value={statusNote} onChange={(e) => setStatusNote(e.target.value)} />
+            <label className="inbound-field">
+              <span>Payment</span>
+              <select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
+                <option value="unpaid">Unpaid</option>
+                <option value="deposit_paid">Deposit / partial paid</option>
+                <option value="paid">Paid in full</option>
+              </select>
+            </label>
+            <div className="cust-addr-row inbound-row2">
+              <input type="number" step="0.01" placeholder="Amount paid (€)" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} />
+              <input type="number" step="0.01" placeholder="Invoice total (€)" value={invoiceTotal} onChange={(e) => setInvoiceTotal(e.target.value)} />
+            </div>
             <textarea placeholder="Notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
 

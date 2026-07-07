@@ -55,7 +55,10 @@ function extractMeta(text) {
   const supplierNote = text.match(/(MERCE MAGAZZINO [A-Z]+|ORDINE MAGAZZINO [A-Z]+)/)?.[1] || null;
   const customerPo = text.match(/Customer PO\s*#?\s*[:\s]\s*([A-Z0-9-]{2,20})/i)?.[1] || null;
 
-  return { reference: ref, origin, docDate, fob, madeIn, linked, docType, supplierNote, customerPo };
+  // Invoice total (pro-formas): EU number format 10.831,81 -> 10831.81.
+  const tm = text.match(/(?:Net amount|Total)[\s\S]{0,30}?([\d.]{1,12},\d{2})\s*€/i);
+  const invoiceTotal = tm ? Number(tm[1].replace(/\./g, '').replace(',', '.')) : null;
+  return { reference: ref, origin, docDate, fob, madeIn, linked, docType, supplierNote, customerPo, invoiceTotal };
 }
 
 // ---- XLSX (SheetJS) ----

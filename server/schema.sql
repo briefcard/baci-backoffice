@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS inbound_lines (
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_lines_shipment ON inbound_lines(shipment_id);
 
+-- Supplier-invoice payment tracking on shipments (added later; idempotent).
+ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'unpaid'; -- unpaid | deposit_paid | paid
+ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS paid_amount NUMERIC;
+ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS invoice_total NUMERIC;
+
 -- Seed your ~10 reps (edit, then re-run `npm run migrate` or run manually):
 -- INSERT INTO reps (email, name) VALUES
 --   ('jane@bacimilanousa.com', 'Jane Doe'),

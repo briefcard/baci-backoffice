@@ -317,6 +317,20 @@ main { padding-bottom: 96px; }
 .inb-add input:first-child { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }
 .small-btn { width: auto; padding: 10px 14px; font-size: 14px; }
 .inb-head-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Kanban board */
+.kanban { display: flex; gap: 10px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; -webkit-overflow-scrolling: touch; }
+.kcol { flex: 0 0 235px; min-width: 235px; background: #ededf0; border-radius: 12px; padding: 8px; min-height: 120px; }
+.kcol-head { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 2px 4px 8px; }
+.kcard { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; cursor: grab; }
+.kcard-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 3px; cursor: pointer; }
+.kmove { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 8px; }
+.kmove button { border: 1px solid var(--line); background: #fafafa; border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.kmove button:disabled { opacity: .3; }
+.kmove .krcv { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 700; flex: 1; }
+.badge.pay-unpaid { background: #fde8e8; color: var(--out); }
+.badge.pay-deposit { background: #fff4d6; color: var(--low); }
+.badge.pay-paid { background: #e6f4ea; color: var(--in); }
 .inb-import { display: inline-block; cursor: pointer; }
 .tl-row { padding: 2px 0; }
 .rcv-line { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 8px; display: grid; gap: 8px; background: #fafafa; }
