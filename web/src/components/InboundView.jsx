@@ -168,6 +168,7 @@ export function InboundView({ snapshot }) {
       )}
       {receiving && (
         <ReceiveModal
+          knownBins={[...new Set(ships.flatMap((x) => x.lines.flatMap((l) => (l.bins || []).map((b) => b.bin))))].sort()}
           shipment={receiving}
           onClose={() => setReceiving(null)}
           onDone={() => {
@@ -406,7 +407,10 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
 // The QA intake (replaces the Google Sheet): per line — counted, damaged, and bin locations
 // with qty per bin (multi-bin, like Location1..4 on the sheet). Good units (counted − damaged)
 // go up in Shopify at Miami; bin codes go to the product's warehouse.bin_location metafield.
-function ReceiveModal({ shipment, onClose, onDone }) {
+// knownBins = every location ID used so far, offered as type-ahead suggestions. Any NEW code
+// typed here is accepted as-is (normalized to uppercase server-side) and automatically joins
+// the suggestion list for future receives — no separate "manage locations" step needed.
+function ReceiveModal({ shipment, onClose, onDone, knownBins = [] }) {
   const [rows, setRows] = useState(
     shipment.lines
       .filter((l) => !l.receivedAt)
@@ -459,6 +463,11 @@ function ReceiveModal({ shipment, onClose, onDone }) {
           <button className="x" onClick={onClose}>✕</button>
         </div>
         <div className="cart-body">
+          <datalist id="bin-options">
+            {knownBins.map((b) => (
+              <option key={b} value={b} />
+            ))}
+          </datalist>
           {rows.length === 0 && <div className="muted center">All lines already received.</div>}
           {rows.map((r, i) => {
             const good = Math.max(0, r.received - r.damaged);
@@ -482,7 +491,12 @@ function ReceiveModal({ shipment, onClose, onDone }) {
                 <div className="rcv-bins">
                   {r.bins.map((b, bi) => (
                     <span className="rcv-bin" key={bi}>
-                      <input placeholder="Bin (1D4)" value={b.bin} onChange={(e) => setBin(i, bi, { bin: e.target.value })} />
+                      <input
+                        list="bin-options"
+                        placeholder="Location (1D4)"
+                        value={b.bin}
+                        onChange={(e) => setBin(i, bi, { bin: e.target.value })}
+                      />
                       <input className="fqty" type="number" min="0" value={b.qty} onChange={(e) => setBin(i, bi, { qty: Number(e.target.value) || 0 })} />
                     </span>
                   ))}

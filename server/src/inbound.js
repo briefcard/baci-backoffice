@@ -36,7 +36,7 @@ function sanitizeLines(lines) {
       damaged: Math.max(0, Math.floor(Number(l.damaged) || 0)),
       bins: Array.isArray(l.bins)
         ? l.bins
-            .map((b) => ({ bin: s(b?.bin, 24), qty: Math.max(0, Math.floor(Number(b?.qty) || 0)) }))
+            .map((b) => ({ bin: s(b?.bin, 24)?.trim().toUpperCase() || null, qty: Math.max(0, Math.floor(Number(b?.qty) || 0)) }))
             .filter((b) => b.bin)
         : [],
       shopifySynced: !!l.shopifySynced,
@@ -324,7 +324,7 @@ export async function receiveShipment(id, by, body = {}) {
     line.received = Math.max(0, Math.floor(Number(u.received) || 0));
     line.damaged = Math.max(0, Math.min(line.received, Math.floor(Number(u.damaged) || 0)));
     line.bins = Array.isArray(u.bins)
-      ? u.bins.map((b) => ({ bin: s(b?.bin, 24), qty: Math.max(0, Math.floor(Number(b?.qty) || 0)) })).filter((b) => b.bin)
+      ? u.bins.map((b) => ({ bin: s(b?.bin, 24)?.trim().toUpperCase() || null, qty: Math.max(0, Math.floor(Number(b?.qty) || 0)) })).filter((b) => b.bin)
       : line.bins;
     line.receivedAt = now;
     line.receivedBy = by;
