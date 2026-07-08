@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
+import { PrintDoc, RFQDoc } from './PrintDocs.jsx';
 
 // Back-office inbound shipment tracker (ADMIN ONLY — reps never see this tab).
 // Lanes: Ordered → In transit → Arrived → Receiving → Received. Each shipment carries origin,
 // references, ETA, a status timeline, and SKU lines. "Receive" runs the QA intake that replaces
 // the Google Sheet: counted / damaged / bin locations per line; good units push to Shopify.
 const LANES = [
+  ['draft', 'RFQ draft'],
   ['ordered', 'Ordered'],
   ['in_transit', 'In transit'],
   ['arrived', 'Arrived'],
@@ -194,10 +196,6 @@ export function InboundView({ snapshot }) {
           item={quickAdd}
           ships={ships}
           onClose={() => setQuickAdd(null)}
-          onNewShipment={(line) => {
-            setQuickAdd(null);
-            setEditing({ prefill: { lines: [line] } });
-          }}
           onDone={() => {
             setQuickAdd(null);
             load();
@@ -223,35 +221,40 @@ export function InboundView({ snapshot }) {
   );
 }
 
-// "+ Order" from the Items view: drop the SKU into an existing open shipment (one tap) or
-// start a new shipment prefilled with it. This is the "jump in and update the status" path
-// for anything that has no inbound status yet.
-function QuickAddSheet({ item, ships, onClose, onNewShipment, onDone }) {
-  const open = (ships || []).filter((x) => ['ordered', 'in_transit', 'arrived'].includes(x.status));
-  const [target, setTarget] = useState(open[0]?.id || 'new');
+// "+ Order" from the Items view: the item lands on the ACTIVE order form (a shipment in
+// 'draft' status — the RFQ being built). If none exists, one is created. From the draft,
+// "Export RFQ" produces the supplier-ready PDF / CSV; moving it to "Ordered" = it was sent.
+function QuickAddSheet({ item, ships, onClose, onDone }) {
+  const draft = (ships || []).find((x) => x.status === 'draft');
   const [qty, setQty] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-
-  const line = () => ({
-    id: crypto.randomUUID(),
-    sku: item.sku,
-    variantId: item.key,
-    title: item.title,
-    expected: Math.max(1, Math.floor(Number(qty) || 0)),
-  });
 
   const save = async () => {
     if (!Number(qty)) {
       setErr('Enter the quantity to order.');
       return;
     }
-    if (target === 'new') return onNewShipment(line());
     setBusy(true);
     setErr('');
+    const line = {
+      id: crypto.randomUUID(),
+      sku: item.sku,
+      variantId: item.key,
+      title: item.title,
+      expected: Math.max(1, Math.floor(Number(qty) || 0)),
+    };
     try {
-      const ship = ships.find((x) => x.id === target);
-      await api.inboundUpdate(target, { lines: [...ship.lines, line()], statusNote: `Added ${item.sku} ×${qty}` });
+      if (draft) {
+        await api.inboundUpdate(draft.id, { lines: [...draft.lines, line], statusNote: `Added ${item.sku} ×${qty}` });
+      } else {
+        await api.inboundCreate({
+          status: 'draft',
+          reference: `RFQ ${new Date().toISOString().slice(0, 10)}`,
+          notes: 'Order form draft — export as RFQ and move to "Ordered" once sent to the supplier.',
+          lines: [line],
+        });
+      }
       onDone();
     } catch (e) {
       setErr(e?.message || 'Could not add');
@@ -272,20 +275,14 @@ function QuickAddSheet({ item, ships, onClose, onNewShipment, onDone }) {
             <span>Qty</span>
             <input type="number" min="1" placeholder="Units to order" value={qty} onChange={(e) => setQty(e.target.value)} autoFocus />
           </label>
-          <label className="inbound-field">
-            <span>Add to</span>
-            <select value={target} onChange={(e) => setTarget(e.target.value)}>
-              {open.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {(x.reference || x.origin || 'shipment')} · {x.status.replace('_', ' ')}{x.eta ? ` · ETA ${x.eta}` : ''}
-                </option>
-              ))}
-              <option value="new">＋ New shipment…</option>
-            </select>
-          </label>
+          <div className="muted small">
+            {draft
+              ? `Adds to the active order form “${draft.reference || 'RFQ draft'}” (${draft.lines.length} item${draft.lines.length !== 1 ? 's' : ''} so far).`
+              : 'Starts a new order form (RFQ draft) with this item.'}
+          </div>
           {err && <div className="err">{err}</div>}
           <button className="primary" disabled={busy} onClick={save}>
-            {busy ? 'Adding…' : target === 'new' ? 'Continue to new shipment' : 'Add to shipment'}
+            {busy ? 'Adding…' : draft ? 'Add to order form' : 'Start order form'}
           </button>
         </div>
       </div>
@@ -304,7 +301,7 @@ function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
   const [sort, setSort] = useState('eta');
 
   const rows = useMemo(() => {
-    const OPEN = ['ordered', 'in_transit', 'arrived', 'receiving'];
+    const OPEN = ['draft', 'ordered', 'in_transit', 'arrived', 'receiving'];
     const byVariant = new Map();
     for (const ship of ships || []) {
       if (!OPEN.includes(ship.status)) continue;
@@ -365,7 +362,7 @@ function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
       return a.title.localeCompare(b.title);
     });
 
-  const STATUS_SHORT = { ordered: 'Ordered', in_transit: 'Transit', arrived: 'Arrived', receiving: 'Receiving' };
+  const STATUS_SHORT = { draft: 'RFQ draft', ordered: 'Ordered', in_transit: 'Transit', arrived: 'Arrived', receiving: 'Receiving' };
 
   return (
     <div className="items-view">
@@ -405,15 +402,18 @@ function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
 
       {shown.map((r) => {
         // The one-glance status pill: what should the owner SAY to a customer about this item?
-        const noEtaShip = r.shipments.find((sh) => !sh.eta);
+        const confirmed = r.shipments.filter((sh) => sh.status !== 'draft');
+        const noEtaShip = confirmed.find((sh) => !sh.eta);
         const pill =
-          r.expected > 0
+          confirmed.length > 0
             ? r.eta
               ? { cls: 'ready', txt: `Arriving ${fmtDate(r.eta)}` }
               : { cls: 'warn', txt: 'Ordered — no ETA' }
-            : r.needsOrder
-              ? { cls: 'pay-unpaid', txt: 'Needs ordering' }
-              : null;
+            : r.expected > 0
+              ? { cls: 'warn', txt: 'On order form (RFQ)' }
+              : r.needsOrder
+                ? { cls: 'pay-unpaid', txt: 'Needs ordering' }
+                : null;
         return (
           <div className="item-row" key={r.key}>
             {r.image ? <img className="fimg" src={r.image} alt="" loading="lazy" /> : <div className="fimg ph" />}
@@ -566,6 +566,19 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
   const [qtyInput, setQtyInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [showRFQ, setShowRFQ] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyCsv = async () => {
+    const csv = ['SKU,Item,Qty', ...lines.filter((l) => l.expected > 0).map((l) => `${l.sku},"${(l.title || '').replace(/"/g, '""')}",${l.expected}`)].join('\n');
+    try {
+      await navigator.clipboard.writeText(csv);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Copy the CSV below:', csv);
+    }
+  };
 
   const addLine = () => {
     const sku = skuInput.trim();
@@ -681,11 +694,27 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
             </>
           )}
 
+          {lines.length > 0 && (
+            <div className="rfq-actions">
+              <button type="button" className="secondary small-btn" onClick={() => setShowRFQ(true)}>
+                📄 Export / share RFQ
+              </button>
+              <button type="button" className="secondary small-btn" onClick={copyCsv}>
+                {copied ? '✓ Copied' : 'Copy CSV'}
+              </button>
+            </div>
+          )}
+
           {err && <div className="err">{err}</div>}
           <button className="primary" disabled={busy} onClick={save}>
             {busy ? 'Saving…' : 'Save shipment'}
           </button>
         </div>
+        {showRFQ && (
+          <PrintDoc title={`RFQ ${reference || ''}`} onClose={() => setShowRFQ(false)}>
+            <RFQDoc reference={reference} origin={origin} notes={notes} lines={lines} skuIndex={skuIndex} />
+          </PrintDoc>
+        )}
       </div>
     </div>
   );

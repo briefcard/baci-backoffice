@@ -140,6 +140,74 @@ export function BlankFormDoc({ snapshot, config }) {
   );
 }
 
+// ---- Supplier-facing order form / RFQ (from an inbound shipment draft) ----
+// Baci Milano USA is the BUYER here: SKU, item, photo, quantity, and a blank unit-cost column
+// for the supplier to quote. Print → Save as PDF → email to Turkey/Italy.
+export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const rows = (lines || []).filter((l) => (l.expected || 0) > 0);
+  const total = rows.reduce((n, l) => n + l.expected, 0);
+  return (
+    <>
+      <div className="pf-copyhead">
+        <DocHeader subtitle="PURCHASE ORDER — REQUEST FOR QUOTE" />
+        <div className="pf-meta">
+          <div>{today}</div>
+          {reference && <div>Our reference: {reference}</div>}
+          {origin && <div>To: {origin}</div>}
+        </div>
+      </div>
+
+      <section className="pf-section">
+        <table>
+          <thead>
+            <tr>
+              <th className="pf-th-img" />
+              <th>Item</th>
+              <th className="pf-th-sku">SKU</th>
+              <th className="pf-th-qty">Qty</th>
+              <th className="pf-th-price">Unit cost</th>
+              <th className="pf-th-price">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((l) => {
+              const p = skuIndex?.get((l.sku || '').toLowerCase())?.product;
+              return (
+                <tr key={l.id || l.sku}>
+                  <td className="pf-td-img">{p?.image ? <img src={p.image} alt="" /> : null}</td>
+                  <td>
+                    <div className="pf-item">{l.title || p?.title || ''}</div>
+                  </td>
+                  <td className="pf-td-sku">{l.sku}</td>
+                  <td className="pf-td-qty pf-qty-num">{l.expected}</td>
+                  <td className="pf-td-qty"><span className="pf-qtybox" /></td>
+                  <td className="pf-td-qty"><span className="pf-qtybox" /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div className="pf-meta" style={{ marginTop: 8 }}>
+          <div>Total units requested: {total} across {rows.length} item{rows.length !== 1 ? 's' : ''}</div>
+        </div>
+      </section>
+
+      {notes && (
+        <div className="pf-notes">
+          <div className="pf-block-head">NOTES</div>
+          <div>{notes}</div>
+        </div>
+      )}
+
+      <div className="pf-foot">
+        Please confirm unit pricing, availability, and earliest ship date / ETA for the quantities
+        above. — Baci Milano USA, LLC · GS@BaciMilanoUSA.com · 305.600.0099
+      </div>
+    </>
+  );
+}
+
 // ---- A client-shareable copy of a drafted order ----
 // `order` = { lines: { ready, backorder }, customer, notes, appliedPct, result }
 //   result (when submitted) = createOrders response: { ready: {name…}, backorder: {name, depositPct,

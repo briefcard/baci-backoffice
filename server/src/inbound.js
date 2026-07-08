@@ -16,7 +16,9 @@ import { cache, setInboundOverlay } from './snapshot.js';
 
 const memShipments = new Map(); // id -> shipment (with .lines[]) when no DATABASE_URL
 
-export const SHIPMENT_STATUSES = ['ordered', 'in_transit', 'arrived', 'receiving', 'received', 'cancelled'];
+// 'draft' = an order form / RFQ being built — NOT yet promised to the sales floor: the
+// incoming/ETA overlay for reps only counts confirmed statuses (OPEN_STATUSES below).
+export const SHIPMENT_STATUSES = ['draft', 'ordered', 'in_transit', 'arrived', 'receiving', 'received', 'cancelled'];
 const OPEN_STATUSES = ['ordered', 'in_transit', 'arrived', 'receiving'];
 
 const s = (v, n = 300) => (v == null ? null : String(v).slice(0, n));
