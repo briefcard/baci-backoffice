@@ -35,6 +35,7 @@ export function InboundView({ snapshot }) {
   const [mode, setMode] = useState('board'); // board | items
   const [editing, setEditing] = useState(null); // shipment object | 'new' | {prefill}
   const [receiving, setReceiving] = useState(null); // shipment object
+  const [quickAdd, setQuickAdd] = useState(null); // item row from ItemsView
   const [parsing, setParsing] = useState(false);
   const [err, setErr] = useState('');
 
@@ -145,7 +146,15 @@ export function InboundView({ snapshot }) {
       </div>
 
       {mode === 'items' ? (
-        <ItemsView ships={ships} snapshot={snapshot} />
+        <ItemsView
+          ships={ships}
+          snapshot={snapshot}
+          onOpenShipment={(shipId) => {
+            const ship = ships.find((x) => x.id === shipId);
+            if (ship) setEditing(ship);
+          }}
+          onQuickAdd={setQuickAdd}
+        />
       ) : (
       <KanbanBoard
         ships={ships}
@@ -180,6 +189,21 @@ export function InboundView({ snapshot }) {
           }}
         />
       )}
+      {quickAdd && (
+        <QuickAddSheet
+          item={quickAdd}
+          ships={ships}
+          onClose={() => setQuickAdd(null)}
+          onNewShipment={(line) => {
+            setQuickAdd(null);
+            setEditing({ prefill: { lines: [line] } });
+          }}
+          onDone={() => {
+            setQuickAdd(null);
+            load();
+          }}
+        />
+      )}
       {receiving && (
         <ReceiveModal
           knownBins={[...new Set([
@@ -199,10 +223,80 @@ export function InboundView({ snapshot }) {
   );
 }
 
+// "+ Order" from the Items view: drop the SKU into an existing open shipment (one tap) or
+// start a new shipment prefilled with it. This is the "jump in and update the status" path
+// for anything that has no inbound status yet.
+function QuickAddSheet({ item, ships, onClose, onNewShipment, onDone }) {
+  const open = (ships || []).filter((x) => ['ordered', 'in_transit', 'arrived'].includes(x.status));
+  const [target, setTarget] = useState(open[0]?.id || 'new');
+  const [qty, setQty] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const line = () => ({
+    id: crypto.randomUUID(),
+    sku: item.sku,
+    variantId: item.key,
+    title: item.title,
+    expected: Math.max(1, Math.floor(Number(qty) || 0)),
+  });
+
+  const save = async () => {
+    if (!Number(qty)) {
+      setErr('Enter the quantity to order.');
+      return;
+    }
+    if (target === 'new') return onNewShipment(line());
+    setBusy(true);
+    setErr('');
+    try {
+      const ship = ships.find((x) => x.id === target);
+      await api.inboundUpdate(target, { lines: [...ship.lines, line()], statusNote: `Added ${item.sku} ×${qty}` });
+      onDone();
+    } catch (e) {
+      setErr(e?.message || 'Could not add');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="cart-overlay" onClick={onClose}>
+      <div className="cart exit-gate" onClick={(e) => e.stopPropagation()}>
+        <div className="cart-head">
+          <strong>Order {item.sku}</strong>
+          <button className="x" onClick={onClose}>✕</button>
+        </div>
+        <div className="cart-body">
+          <div className="muted small">{item.title} — currently {item.available} in stock, nothing inbound.</div>
+          <label className="inbound-field">
+            <span>Qty</span>
+            <input type="number" min="1" placeholder="Units to order" value={qty} onChange={(e) => setQty(e.target.value)} autoFocus />
+          </label>
+          <label className="inbound-field">
+            <span>Add to</span>
+            <select value={target} onChange={(e) => setTarget(e.target.value)}>
+              {open.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {(x.reference || x.origin || 'shipment')} · {x.status.replace('_', ' ')}{x.eta ? ` · ETA ${x.eta}` : ''}
+                </option>
+              ))}
+              <option value="new">＋ New shipment…</option>
+            </select>
+          </label>
+          {err && <div className="err">{err}</div>}
+          <button className="primary" disabled={busy} onClick={save}>
+            {busy ? 'Adding…' : target === 'new' ? 'Continue to new shipment' : 'Add to shipment'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Item-level view of everything on the way: photo, collection, current stock, expected units,
 // and each shipment's stage + ETA — searchable, filterable, sortable. Built for talking to a
 // customer: "what's coming, when?" — plus the flip side: what's LOW with nothing ordered yet.
-function ItemsView({ ships, snapshot }) {
+function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
   const lowT = snapshot?.config?.lowThreshold ?? 10;
   const [q, setQ] = useState('');
   const [coll, setColl] = useState('');
@@ -218,6 +312,7 @@ function ItemsView({ ships, snapshot }) {
         if (!l.variantId || l.receivedAt) continue;
         if (!byVariant.has(l.variantId)) byVariant.set(l.variantId, []);
         byVariant.get(l.variantId).push({
+          shipId: ship.id,
           ref: ship.reference || ship.origin || '—',
           status: ship.status,
           eta: ship.eta,
@@ -308,40 +403,66 @@ function ItemsView({ ships, snapshot }) {
         {filter === 'incoming' ? ` · ${shown.reduce((n, r) => n + r.expected, 0)} units on the way` : ''}
       </div>
 
-      {shown.map((r) => (
-        <div className="item-row" key={r.key}>
-          {r.image ? <img className="fimg" src={r.image} alt="" loading="lazy" /> : <div className="fimg ph" />}
-          <div className="item-main">
-            <div className="item-line1">
-              <strong>{r.title}</strong>
-            </div>
-            <div className="muted small">
-              {r.sku} · {r.collection}
-            </div>
-            <div className="item-chips">
-              {r.shipments.map((sh, i) => (
-                <span className="chip ship-chip" key={i}>
-                  {STATUS_SHORT[sh.status] || sh.status} · {sh.qty}u{sh.eta ? ` · ${fmtDate(sh.eta)}` : ''}
-                  {sh.eta && daysLate(sh.eta) > 0 ? ` · ${daysLate(sh.eta)}d late` : ''}
-                </span>
-              ))}
-              {r.needsOrder && <span className="badge pay-unpaid">needs ordering</span>}
-            </div>
-          </div>
-          <div className="item-nums">
-            <div className={`stocknum ${r.available <= 0 ? 'out' : r.low ? 'low' : 'in'}`}>
-              <span className="num">{Math.max(r.available, 0)}</span>
-              <span className="lbl">in stock</span>
-            </div>
-            {r.expected > 0 && (
-              <div className="item-expected">
-                +{r.expected}
-                <span>{r.eta ? fmtDate(r.eta) : 'expected'}</span>
+      {shown.map((r) => {
+        // The one-glance status pill: what should the owner SAY to a customer about this item?
+        const noEtaShip = r.shipments.find((sh) => !sh.eta);
+        const pill =
+          r.expected > 0
+            ? r.eta
+              ? { cls: 'ready', txt: `Arriving ${fmtDate(r.eta)}` }
+              : { cls: 'warn', txt: 'Ordered — no ETA' }
+            : r.needsOrder
+              ? { cls: 'pay-unpaid', txt: 'Needs ordering' }
+              : null;
+        return (
+          <div className="item-row" key={r.key}>
+            {r.image ? <img className="fimg" src={r.image} alt="" loading="lazy" /> : <div className="fimg ph" />}
+            <div className="item-main">
+              <div className="item-line1">
+                <strong>{r.title}</strong>
+                {pill && <span className={`badge ${pill.cls}`}>{pill.txt}</span>}
               </div>
-            )}
+              <div className="muted small">
+                {r.sku} · {r.collection}
+              </div>
+              <div className="item-chips">
+                {r.shipments.map((sh, i) => (
+                  <button
+                    className="chip ship-chip"
+                    key={i}
+                    title="Open this shipment"
+                    onClick={() => onOpenShipment?.(sh.shipId)}
+                  >
+                    {STATUS_SHORT[sh.status] || sh.status} · {sh.qty}u{sh.eta ? ` · ${fmtDate(sh.eta)}` : ' · no ETA ⚠'}
+                    {sh.eta && daysLate(sh.eta) > 0 ? ` · ${daysLate(sh.eta)}d late` : ''} ▸
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="item-nums">
+              <div className={`stocknum ${r.available <= 0 ? 'out' : r.low ? 'low' : 'in'}`}>
+                <span className="num">{Math.max(r.available, 0)}</span>
+                <span className="lbl">in stock</span>
+              </div>
+              {r.expected > 0 ? (
+                <div className="item-expected">
+                  +{r.expected}
+                  <span>{r.eta ? fmtDate(r.eta) : 'expected'}</span>
+                </div>
+              ) : (
+                <button className="primary small item-order-btn" onClick={() => onQuickAdd?.(r)}>
+                  + Order
+                </button>
+              )}
+              {noEtaShip && (
+                <button className="secondary small-btn" onClick={() => onOpenShipment?.(noEtaShip.shipId)}>
+                  Set ETA
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       {shown.length === 0 && <div className="center muted">Nothing matches.</div>}
     </div>
   );

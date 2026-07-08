@@ -344,6 +344,11 @@ main { padding-bottom: 96px; }
 .item-nums { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
 .item-expected { font-weight: 800; color: #1a56c4; display: grid; text-align: center; font-size: 16px; }
 .item-expected span { font-size: 10px; font-weight: 600; color: var(--muted); }
+.item-order-btn { width: auto; padding: 9px 12px; font-size: 13px; }
+.item-nums .small-btn { padding: 8px 10px; font-size: 12px; }
+.ship-chip { cursor: pointer; border: none; }
+.badge.ready { background: #e6f4ea; color: var(--in); }
+.badge.warn { background: #fff4d6; color: var(--low); }
 .badge.pay-deposit { background: #fff4d6; color: var(--low); }
 .badge.pay-paid { background: #e6f4ea; color: var(--in); }
 .inb-import { display: inline-block; cursor: pointer; }
