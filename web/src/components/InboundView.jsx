@@ -321,9 +321,14 @@ function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
     for (const p of snapshot?.products || []) {
       for (const v of p.variants) {
         const inc = byVariant.get(v.id) || [];
-        const expected = inc.reduce((n, x) => n + x.qty, 0);
+        // "In cart" (on the RFQ draft) is a shopping-list note, NOT a confirmed order:
+        // it must not remove an item from the low/out-of-stock view or count as "on the way".
+        const confirmed = inc.filter((x) => x.status !== 'draft');
+        const expected = confirmed.reduce((n, x) => n + x.qty, 0);
+        const draftQty = inc.filter((x) => x.status === 'draft').reduce((n, x) => n + x.qty, 0);
+        const draftShipId = inc.find((x) => x.status === 'draft')?.shipId || null;
         const available = v.available ?? 0;
-        const etas = inc.map((x) => x.eta).filter(Boolean).sort();
+        const etas = confirmed.map((x) => x.eta).filter(Boolean).sort();
         out.push({
           key: v.id,
           image: p.image,
@@ -332,6 +337,8 @@ function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
           collection: p.design || p.collections?.[0]?.title || '—',
           available,
           expected,
+          draftQty,
+          draftShipId,
           shipments: inc,
           eta: etas[0] || null,
           low: available < lowT,
@@ -374,7 +381,7 @@ function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
               On the way
             </button>
             <button className={filter === 'needs' ? 'chip on' : 'chip'} onClick={() => setFilter('needs')}>
-              ⚠ Low, nothing ordered
+              ⚠ Low / out of stock
             </button>
             <button className={filter === 'all' ? 'chip on' : 'chip'} onClick={() => setFilter('all')}>
               All items
@@ -409,8 +416,8 @@ function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
             ? r.eta
               ? { cls: 'ready', txt: `Arriving ${fmtDate(r.eta)}` }
               : { cls: 'warn', txt: 'Ordered — no ETA' }
-            : r.expected > 0
-              ? { cls: 'warn', txt: 'On order form (RFQ)' }
+            : r.draftQty > 0
+              ? { cls: 'cart', txt: `🛒 In cart · ${r.draftQty}` }
               : r.needsOrder
                 ? { cls: 'pay-unpaid', txt: 'Needs ordering' }
                 : null;
@@ -449,6 +456,14 @@ function ItemsView({ ships, snapshot, onOpenShipment, onQuickAdd }) {
                   +{r.expected}
                   <span>{r.eta ? fmtDate(r.eta) : 'expected'}</span>
                 </div>
+              ) : r.draftQty > 0 ? (
+                <button
+                  className="secondary small-btn item-order-btn"
+                  title="Open the order form"
+                  onClick={() => onOpenShipment?.(r.draftShipId)}
+                >
+                  🛒 In cart · {r.draftQty}
+                </button>
               ) : (
                 <button className="primary small item-order-btn" onClick={() => onQuickAdd?.(r)}>
                   + Order

@@ -336,9 +336,30 @@ export function OrderCopyDoc({ order, currency = 'USD' }) {
         </div>
       )}
 
+      <div className="pf-terms">
+        <div className="pf-block-head">TERMS &amp; CONDITIONS</div>
+        <ul>
+          {QUOTE_TERMS.map((t, i) => (
+            <li key={i}>{t}</li>
+          ))}
+        </ul>
+      </div>
+
       <div className="pf-foot">
-        Thank you! Questions or changes — your Baci Milano sales rep · 305.600.0099 · info@bacimilanousa.com
+        Questions or changes — your Baci Milano sales rep · 305.600.0099 · GS@BaciMilanoUSA.com ·
+        Baci Milano USA, LLC · 1835 E Hallandale Beach Blvd STE 834, Hallandale Beach, FL 33009
       </div>
     </>
   );
 }
+
+// Quote terms / timelines / cost exclusions printed in the customer PDF footer. Wholesale
+// boilerplate — OWNER SHOULD REVIEW the exact wording with legal/ops before relying on it.
+const QUOTE_TERMS = [
+  'Prices are wholesale, quoted in U.S. dollars, and EXCLUDE freight/shipping, insurance, duties, and any applicable state or local taxes unless expressly stated on this document.',
+  'This quote is valid for 14 days from the date above. All items are subject to prior sale and to availability at time of order confirmation.',
+  'In-stock ("ready to ship") items typically ship within 3–5 business days of cleared payment.',
+  'Backordered items ship upon arrival of inbound stock; any ship/arrival dates shown are good-faith estimates and may change.',
+  'Backorder deposits are applied to the balance due at fulfillment; the remaining balance is due before the backordered goods ship.',
+  'This document is a quotation, not an invoice or confirmed order, until accepted by Baci Milano USA and payment terms are met.',
+];

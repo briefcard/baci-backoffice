@@ -350,6 +350,7 @@ main { padding-bottom: 96px; }
 .ship-chip { cursor: pointer; border: none; }
 .badge.ready { background: #e6f4ea; color: var(--in); }
 .badge.warn { background: #fff4d6; color: var(--low); }
+.badge.cart { background: #eaf2ff; color: #1a56c4; }
 .badge.pay-deposit { background: #fff4d6; color: var(--low); }
 .badge.pay-paid { background: #e6f4ea; color: var(--in); }
 .inb-import { display: inline-block; cursor: pointer; }
@@ -423,6 +424,9 @@ main { padding-bottom: 96px; }
 .pf-totals > div { display: flex; justify-content: space-between; gap: 16px; font-size: 12.5px; }
 .pf-totals .pf-grand { font-size: 15px; border-top: 1px solid #999; padding-top: 6px; }
 .pf-notes { margin-top: 18px; font-size: 12px; white-space: pre-wrap; }
+.pf-terms { margin-top: 18px; font-size: 10.5px; color: #333; }
+.pf-terms ul { margin: 6px 0 0; padding-left: 16px; }
+.pf-terms li { margin-bottom: 4px; line-height: 1.45; }
 .pf-foot { margin-top: 26px; font-size: 10px; color: #555; text-align: center; }
 
 @page { size: letter; margin: 13mm 11mm; }
