@@ -437,7 +437,7 @@ function Shell({ me }) {
       )}
       {printing && printing !== 'blank' && (
         <PrintDoc title="Order copy" onClose={() => setPrinting(null)}>
-          <OrderCopyDoc order={printing.order} currency={s.config?.currency || 'USD'} leadTime={s.config?.leadTime} />
+          <OrderCopyDoc order={printing.order} currency={s.config?.currency || 'USD'} leadTime={s.config?.leadTime} depositPctHint={s.config?.depositPct?.new_customer} />
         </PrintDoc>
       )}
     </div>

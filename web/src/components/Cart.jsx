@@ -114,7 +114,7 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
         </div>
         {showPrint && doneCtx && (
           <PrintDoc title="Order copy" onClose={() => setShowPrint(false)}>
-            <OrderCopyDoc order={doneCtx} currency={currency} leadTime={config?.leadTime} />
+            <OrderCopyDoc order={doneCtx} currency={currency} leadTime={config?.leadTime} depositPctHint={depositPct} />
           </PrintDoc>
         )}
       </div>
@@ -254,6 +254,7 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
               }}
               currency={currency}
               leadTime={config?.leadTime}
+              depositPctHint={depositPct}
             />
           </PrintDoc>
         )}

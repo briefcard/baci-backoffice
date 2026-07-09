@@ -232,6 +232,7 @@ function LinesTable({ lines, currency, showOrigin }) {
     <table>
       <thead>
         <tr>
+          <th className="pf-th-img" />
           <th>Item</th>
           <th className="pf-th-sku">SKU</th>
           <th className="pf-th-qty">Qty</th>
@@ -243,6 +244,7 @@ function LinesTable({ lines, currency, showOrigin }) {
       <tbody>
         {lines.map((l) => (
           <tr key={l.variantId}>
+            <td className="pf-td-img">{l.image ? <img src={l.image} alt="" /> : null}</td>
             <td>
               <div className="pf-item">{l.title}</div>
               {showOrigin && l.origin && <div className="pf-type">Made in {l.origin}</div>}
@@ -259,7 +261,7 @@ function LinesTable({ lines, currency, showOrigin }) {
   );
 }
 
-export function OrderCopyDoc({ order, currency = 'USD', leadTime = '6–10 weeks' }) {
+export function OrderCopyDoc({ order, currency = 'USD', leadTime = '6–10 weeks', depositPctHint = null }) {
   // Country of origin on the invoice — available when needed, OFF by default.
   const [showOrigin, setShowOrigin] = useState(false);
   const { lines, customer, notes, appliedPct = 0, result } = order;
@@ -271,9 +273,12 @@ export function OrderCopyDoc({ order, currency = 'USD', leadTime = '6–10 weeks
   const subtotal = round2(readySub + backSub);
   const afterVolume = round2(subtotal * (1 - appliedPct / 100));
   const backAfterVolume = round2(backSub * (1 - appliedPct / 100));
-  const depositPct = result?.backorder?.depositPct;
+  const depositPct = result?.backorder?.depositPct ?? depositPctHint;
   const depositAmount = result?.backorder?.depositAmount ?? (depositPct != null ? round2(backAfterVolume * (depositPct / 100)) : null);
   const balanceAmount = result?.backorder?.balanceAmount ?? (depositAmount != null ? round2(backAfterVolume - depositAmount) : null);
+  const readyAfterVolume = round2(readySub * (1 - appliedPct / 100));
+  // What the client pays NOW: everything shipping today + the deposit securing the backorder.
+  const dueToday = depositAmount != null ? round2(readyAfterVolume + depositAmount) : null;
   const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const submitted = !!(result?.ready || result?.backorder);
 
@@ -335,16 +340,24 @@ export function OrderCopyDoc({ order, currency = 'USD', leadTime = '6–10 weeks
           <span>Total</span>
           <strong>{money(afterVolume, currency)}</strong>
         </div>
-        {backorder.length > 0 && depositAmount != null && (
+        {backorder.length > 0 && dueToday != null && (
           <>
-            <div>
-              <span>
-                Backorder deposit due now ({depositPct}%{result?.backorder?.customerTier ? ` · ${result.backorder.customerTier}` : ''})
-              </span>
-              <strong>{money(depositAmount, currency)}</strong>
+            <div className="pf-due">
+              <span>DUE TODAY</span>
+              <strong>{money(dueToday, currency)}</strong>
             </div>
-            <div>
-              <span>Balance due when backorder ships</span>
+            <div className="pf-subrow">
+              <span>Ready to ship</span>
+              <span>{money(readyAfterVolume, currency)}</span>
+            </div>
+            <div className="pf-subrow">
+              <span>
+                Backorder deposit ({depositPct}%{result?.backorder?.customerTier ? ` · ${result.backorder.customerTier}` : ''})
+              </span>
+              <span>{money(depositAmount, currency)}</span>
+            </div>
+            <div className="pf-due2">
+              <span>Due before shipment (backorder balance)</span>
               <strong>{money(balanceAmount, currency)}</strong>
             </div>
           </>

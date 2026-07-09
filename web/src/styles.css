@@ -429,6 +429,9 @@ main { padding-bottom: 96px; }
 .pf-totals { margin-top: 18px; border-top: 2px solid #000; padding-top: 8px; display: grid; gap: 5px; max-width: 380px; margin-left: auto; }
 .pf-totals > div { display: flex; justify-content: space-between; gap: 16px; font-size: 12.5px; }
 .pf-totals .pf-grand { font-size: 15px; border-top: 1px solid #999; padding-top: 6px; }
+.pf-totals .pf-due { font-size: 14px; font-weight: 800; color: #2B1AFE; border-top: 2px solid #2B1AFE; padding-top: 7px; margin-top: 4px; }
+.pf-totals .pf-subrow { font-size: 11.5px; color: #555; padding-left: 12px; }
+.pf-totals .pf-due2 { border-top: 1px dotted #999; padding-top: 5px; }
 .pf-notes { margin-top: 18px; font-size: 12px; white-space: pre-wrap; }
 .pf-terms { margin-top: 18px; font-size: 10.5px; color: #333; }
 .pf-terms ul { margin: 6px 0 0; padding-left: 16px; }
