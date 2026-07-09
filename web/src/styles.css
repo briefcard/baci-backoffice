@@ -7,7 +7,7 @@
   --in: #137333;
   --low: #b8860b;
   --out: #b00020;
-  --accent: #ED3131;
+  --accent: #2B1AFE; /* bacimilanousa.com theme color */
 }
 
 * { box-sizing: border-box; }
@@ -388,6 +388,10 @@ main { padding-bottom: 96px; }
 .printdoc-pages { max-width: 820px; margin: 16px auto 80px; padding: 36px 40px; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.12); color: #000; font-size: 13px; }
 
 .pf-brand h1 { font-size: 32px; letter-spacing: .18em; margin: 0; }
+.pf-band { background: #2B1AFE; color: #fff; padding: 16px 20px; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 10px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.pf-logo { height: 34px; }
+.pf-band-sub { font-size: 12px; letter-spacing: .12em; font-weight: 700; text-align: right; }
+.doc-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 12px 0; color: #1a56c4; font-weight: 600; }
 .pf-sub { font-size: 13px; letter-spacing: .12em; margin: 5px 0 12px; }
 .pf-co { font-size: 11px; color: #333; line-height: 1.55; }
 .pf-date { font-size: 10px; color: #666; margin-top: 8px; }
@@ -432,6 +436,7 @@ main { padding-bottom: 96px; }
 @page { size: letter; margin: 13mm 11mm; }
 @media print {
   html, body { background: #fff !important; }
+  .doc-toggle { display: none !important; }
   #root { display: none !important; }
   .printdoc { position: static; overflow: visible; background: #fff; }
   .printdoc-toolbar { display: none !important; }

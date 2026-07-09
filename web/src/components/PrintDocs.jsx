@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { unitWholesalePrice, money, round2 } from '../domain.js';
 import { buildFormSections } from '../formSections.js';
@@ -33,11 +33,16 @@ export function PrintDoc({ title, children, onClose }) {
   );
 }
 
+// Brand assets from bacimilanousa.com: white logo on the site's electric-blue theme color.
+const BRAND_LOGO = 'https://bacimilanousa.com/cdn/shop/files/Baci_Logo_-_White.png?height=108';
+
 function DocHeader({ subtitle }) {
   return (
     <div className="pf-brand">
-      <h1>BACI MILANO</h1>
-      <div className="pf-sub">{subtitle}</div>
+      <div className="pf-band">
+        <img className="pf-logo" src={BRAND_LOGO} alt="Baci Milano" />
+        <div className="pf-band-sub">{subtitle}</div>
+      </div>
       <div className="pf-co">
         Baci Milano USA, LLC · 1835 E Hallandale Beach Blvd STE 834, Hallandale Beach, FL 33009
         <br />
@@ -213,7 +218,7 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
 //   result (when submitted) = createOrders response: { ready: {name…}, backorder: {name, depositPct,
 //   depositAmount, balanceAmount, customerTier…} } — server-authoritative deposit figures win.
 
-function LinesTable({ lines, currency }) {
+function LinesTable({ lines, currency, showOrigin }) {
   return (
     <table>
       <thead>
@@ -231,6 +236,7 @@ function LinesTable({ lines, currency }) {
           <tr key={l.variantId}>
             <td>
               <div className="pf-item">{l.title}</div>
+              {showOrigin && l.origin && <div className="pf-type">Made in {l.origin}</div>}
             </td>
             <td className="pf-td-sku">{l.sku || '—'}</td>
             <td className="pf-td-qty pf-qty-num">{l.qty}</td>
@@ -244,7 +250,9 @@ function LinesTable({ lines, currency }) {
   );
 }
 
-export function OrderCopyDoc({ order, currency = 'USD' }) {
+export function OrderCopyDoc({ order, currency = 'USD', leadTime = '6–10 weeks' }) {
+  // Country of origin on the invoice — available when needed, OFF by default.
+  const [showOrigin, setShowOrigin] = useState(false);
   const { lines, customer, notes, appliedPct = 0, result } = order;
   const ready = lines?.ready || [];
   const backorder = lines?.backorder || [];
@@ -280,21 +288,26 @@ export function OrderCopyDoc({ order, currency = 'USD' }) {
         )}
       </div>
 
+      <label className="doc-toggle">
+        <input type="checkbox" checked={showOrigin} onChange={(e) => setShowOrigin(e.target.checked)} />
+        Show country of origin on this document
+      </label>
+
       {ready.length > 0 && (
         <section className="pf-section">
           <div className="pf-section-head">
             <h2>Ready to ship</h2>
           </div>
-          <LinesTable lines={ready} currency={currency} />
+          <LinesTable lines={ready} currency={currency} showOrigin={showOrigin} />
         </section>
       )}
 
       {backorder.length > 0 && (
         <section className="pf-section">
           <div className="pf-section-head">
-            <h2>Backorder — ships when stock arrives</h2>
+            <h2>Backorder — ships in approx. {leadTime}</h2>
           </div>
-          <LinesTable lines={backorder} currency={currency} />
+          <LinesTable lines={backorder} currency={currency} showOrigin={showOrigin} />
         </section>
       )}
 
@@ -339,7 +352,7 @@ export function OrderCopyDoc({ order, currency = 'USD' }) {
       <div className="pf-terms">
         <div className="pf-block-head">TERMS &amp; CONDITIONS</div>
         <ul>
-          {QUOTE_TERMS.map((t, i) => (
+          {quoteTerms(leadTime).map((t, i) => (
             <li key={i}>{t}</li>
           ))}
         </ul>
@@ -355,11 +368,11 @@ export function OrderCopyDoc({ order, currency = 'USD' }) {
 
 // Quote terms / timelines / cost exclusions printed in the customer PDF footer. Wholesale
 // boilerplate — OWNER SHOULD REVIEW the exact wording with legal/ops before relying on it.
-const QUOTE_TERMS = [
+const quoteTerms = (leadTime) => [
   'Prices are wholesale, quoted in U.S. dollars, and EXCLUDE freight/shipping, insurance, duties, and any applicable state or local taxes unless expressly stated on this document.',
   'This quote is valid for 14 days from the date above. All items are subject to prior sale and to availability at time of order confirmation.',
   'In-stock ("ready to ship") items typically ship within 3–5 business days of cleared payment.',
-  'Backordered items ship upon arrival of inbound stock; any ship/arrival dates shown are good-faith estimates and may change.',
+  `Backordered items typically ship in ${leadTime} from order confirmation; any ship/arrival dates shown are good-faith estimates and may change.`,
   'Backorder deposits are applied to the balance due at fulfillment; the remaining balance is due before the backordered goods ship.',
   'This document is a quotation, not an invoice or confirmed order, until accepted by Baci Milano USA and payment terms are met.',
 ];

@@ -267,6 +267,7 @@ function Shell({ me }) {
         image: product.image,
         unit: unitWholesalePrice(variant, pct),
         msrp: variant.retailPrice,
+        origin: product.countryOfOrigin,
         qty: Number(l.quantity) || 1,
       });
     }
@@ -424,7 +425,7 @@ function Shell({ me }) {
       )}
       {printing && printing !== 'blank' && (
         <PrintDoc title="Order copy" onClose={() => setPrinting(null)}>
-          <OrderCopyDoc order={printing.order} currency={s.config?.currency || 'USD'} />
+          <OrderCopyDoc order={printing.order} currency={s.config?.currency || 'USD'} leadTime={s.config?.leadTime} />
         </PrintDoc>
       )}
     </div>

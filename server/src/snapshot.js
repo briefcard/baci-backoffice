@@ -111,6 +111,7 @@ query Snapshot($cursor: String, $loc: ID!) {
       collections(first: 12) { nodes { handle title } }
       substitutes: metafield(namespace: "b2b", key: "substitutes") { value }
       binLoc: metafield(namespace: "warehouse", key: "bin_location") { value }
+      origin: metafield(namespace: "custom", key: "country_of_origin") { value }
       variants(first: 40) {
         nodes {
           id
@@ -186,6 +187,7 @@ export async function buildSnapshot() {
         image: p.featuredImage?.url || null,
         substitutes: parseList(p.substitutes?.value),
         binLocation: parseList(p.binLoc?.value),
+        countryOfOrigin: p.origin?.value || null,
         variants,
       });
     }
@@ -245,7 +247,7 @@ export function snapshotResponse() {
     version: cache.version,
     builtAt: cache.builtAt,
     showcase: cache.showcase,
-    config: { ...cache.config, mainCollections: cfg.mainCollections, formCollections: formCollections() },
+    config: { ...cache.config, leadTime: cfg.leadTimeText, mainCollections: cfg.mainCollections, formCollections: formCollections() },
     products: overlaidProducts(),
   };
 }

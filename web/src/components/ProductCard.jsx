@@ -44,7 +44,7 @@ export function ProductCard({ product, availability, config, productIndex }) {
               ) : eta ? (
                 <span className="eta">Restock ~{eta}</span>
               ) : (
-                state === 'out' && <span className="eta">None incoming</span>
+                state === 'out' && <span className="eta">Ships in ~{config?.leadTime || '6–10 weeks'}</span>
               )}
             </div>
           )}
@@ -115,6 +115,7 @@ function AddControl({ variant, product, unit, inCart }) {
             image: product.image,
             unit,
             msrp: variant.retailPrice,
+            origin: product.countryOfOrigin,
           })
         }
       >

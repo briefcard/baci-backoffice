@@ -133,6 +133,8 @@ export const cfg = {
   // prices without a rep login. UNSET = the public form is disabled (kiosk mode still works,
   // it runs under the rep's session). Rotate per show.
   orderFormCode: (process.env.ORDER_FORM_CODE || '').trim(),
+  // Customer-facing lead-time estimate for out-of-stock / backorder items.
+  leadTimeText: process.env.OOS_LEADTIME_TEXT || '6–10 weeks',
   // Back-office admins: ONLY these emails see the Inbound (shipments) tab. Unlike CAPTAIN_EMAILS,
   // empty does NOT mean everyone — reps must never be bothered by back-office tooling. The dev
   // rep (AUTH_DISABLED) is always an admin so local work stays frictionless.

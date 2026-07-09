@@ -201,7 +201,7 @@ function FormRow({ product, availability, pct, currency, qty, setQ }) {
                 <div className="fvar-main">
                   <span className="fsku">{v.sku || '—'}</span>
                   {v.title && v.title !== 'Default Title' && <span className="fvtitle">{v.title}</span>}
-                  {out && <span className="flater">deposit · ships later</span>}
+                  {out && <span className="flater">deposit · ~{config?.leadTime || '6–10 weeks'}</span>}
                   {!out && over > 0 && <span className="flater">+{over} on deposit</span>}
                 </div>
                 <span className="fpricewrap">
