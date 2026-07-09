@@ -305,13 +305,23 @@ function Shell({ me }) {
     loadPending();
   };
 
-  const closeCart = () => {
+  // Closing the drawer does NOT end a pending review — the rep can browse, ADD more items
+  // (client asked for adjustments), and reopen via the cart bar with the client still attached.
+  // The review ends only on confirm (finishReview) or an explicit discard.
+  const closeCart = () => setShowCart(false);
+
+  const finishReview = () => {
     setShowCart(false);
     if (reviewing) {
-      cart.clear(); // don't leak a half-reviewed form into the rep's own browsing cart
       setReviewing(null);
       loadPending();
     }
+  };
+
+  const discardReview = () => {
+    cart.clear();
+    setReviewing(null);
+    setShowCart(false);
   };
 
   return (
@@ -416,6 +426,8 @@ function Shell({ me }) {
           initialCustomer={reviewing?.customer}
           initialNotes={reviewing?.notes}
           onClose={closeCart}
+          onFinished={finishReview}
+          onDiscard={reviewing ? discardReview : undefined}
         />
       )}
       {printing === 'blank' && (

@@ -9,7 +9,7 @@ const sum = (its) => its.reduce((s, i) => s + i.unit * i.qty, 0);
 
 // Also used to review a customer-submitted order form: `pendingId` switches the submit to the
 // pending-confirm endpoint (which closes out the pool entry), with the buyer's info prefilled.
-export function Cart({ config, availability, onClose, pendingId, initialCustomer, initialNotes }) {
+export function Cart({ config, availability, onClose, onFinished, onDiscard, pendingId, initialCustomer, initialNotes }) {
   const items = useCart();
   const currency = config?.currency || 'USD';
   const tiers = config?.tiers || [];
@@ -30,6 +30,7 @@ export function Cart({ config, availability, onClose, pendingId, initialCustomer
   const [done, setDone] = useState(null);
   const [doneCtx, setDoneCtx] = useState(null); // snapshot of the order for the printable copy
   const [showPrint, setShowPrint] = useState(false);
+  const [showQuote, setShowQuote] = useState(false); // pre-confirm quote PDF (client adjustments)
 
   const applied = Math.min(Math.max(Number(disc) || 0, 0), cap);
   const readyTotal = readySubtotal * (1 - applied / 100);
@@ -106,7 +107,7 @@ export function Cart({ config, availability, onClose, pendingId, initialCustomer
                 🖨 Print / save PDF for customer
               </button>
             )}
-            <button className="primary" onClick={onClose}>
+            <button className="primary" onClick={onFinished || onClose}>
               Done
             </button>
           </div>
@@ -228,9 +229,34 @@ export function Cart({ config, availability, onClose, pendingId, initialCustomer
               <button className="primary" disabled={busy} onClick={submit}>
                 {busy ? 'Creating…' : `Create order${backorder.length ? 's' : ''} · ${money(grandTotal, currency)}`}
               </button>
+              {/* Client-quote round-trips: export the branded quote BEFORE confirming, so the
+                  rep can send it, take adjustments (close drawer, add items, reopen), re-send. */}
+              <button className="secondary" onClick={() => setShowQuote(true)}>
+                🖨 Quote PDF for customer
+              </button>
+              {pendingId && onDiscard && (
+                <button className="link discard-link" onClick={onDiscard}>
+                  Discard this review (keeps the pending form)
+                </button>
+              )}
             </>
           )}
         </div>
+        {showQuote && (
+          <PrintDoc title="Customer quote" onClose={() => setShowQuote(false)}>
+            <OrderCopyDoc
+              order={{
+                lines: { ready, backorder },
+                customer: customer ? { name: customer.name, email: customer.email, phone: customer.phone } : null,
+                notes,
+                appliedPct: applied,
+                result: null,
+              }}
+              currency={currency}
+              leadTime={config?.leadTime}
+            />
+          </PrintDoc>
+        )}
       </div>
     </div>
   );
