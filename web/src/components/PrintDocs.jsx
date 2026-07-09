@@ -171,8 +171,8 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
               <th>Item</th>
               <th className="pf-th-sku">SKU</th>
               <th className="pf-th-qty">Qty</th>
-              <th className="pf-th-price">Unit cost</th>
-              <th className="pf-th-price">Total</th>
+              <th className="pf-th-price">Unit cost*</th>
+              <th className="pf-th-price">Total*</th>
             </tr>
           </thead>
           <tbody>
@@ -186,8 +186,8 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
                   </td>
                   <td className="pf-td-sku">{l.sku}</td>
                   <td className="pf-td-qty pf-qty-num">{l.expected}</td>
-                  <td className="pf-td-qty"><span className="pf-qtybox" /></td>
-                  <td className="pf-td-qty"><span className="pf-qtybox" /></td>
+                  <td className="pf-td-price"><span className="pf-fillline">$</span></td>
+                  <td className="pf-td-price"><span className="pf-fillline">$</span></td>
                 </tr>
               );
             })}
@@ -205,9 +205,18 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
         </div>
       )}
 
+      <div className="pf-terms">
+        <div className="pf-block-head">TERMS &amp; CONDITIONS</div>
+        <ul>
+          <li>* Unit cost and total columns are to be completed by the supplier — please quote in EUR or USD, stating currency and incoterms (e.g. FOB port).</li>
+          <li>Please confirm unit pricing, availability, packing (units per carton), and the earliest ship date / ETA for the quantities above.</li>
+          <li>Quantities are requested amounts and become binding only upon our written purchase-order confirmation.</li>
+          <li>Please reply referencing our RFQ number above.</li>
+        </ul>
+      </div>
+
       <div className="pf-foot">
-        Please confirm unit pricing, availability, and earliest ship date / ETA for the quantities
-        above. — Baci Milano USA, LLC · GS@BaciMilanoUSA.com · 305.600.0099
+        Baci Milano USA, LLC · GS@BaciMilanoUSA.com · 305.600.0099 · 1835 E Hallandale Beach Blvd STE 834, Hallandale Beach, FL 33009
       </div>
     </>
   );
