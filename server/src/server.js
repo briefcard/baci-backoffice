@@ -20,8 +20,21 @@ import {
   updateShipment,
   receiveShipment,
   refreshRollup,
+  findShipmentMatches,
+  findDuplicateByReference,
+  appendTimelineNote,
   SHIPMENT_STATUSES,
 } from './inbound.js';
+import {
+  createDocument,
+  getDocument,
+  updateDocument,
+  listShipmentDocuments,
+  listDocumentsForShipments,
+  listCompanyDocuments,
+  checklistFor,
+  DOC_STATUSES,
+} from './documents.js';
 import multipart from '@fastify/multipart';
 import { parseIntakeFile } from './intake.js';
 import { addClient, clientCount, broadcast } from './stream.js';
@@ -83,32 +96,91 @@ function requireAuth(req, reply, done) {
   done();
 }
 
+// Machine identity for the owner's WhatsApp agent: `Authorization: Bearer <AGENT_API_TOKEN>`.
+// Only honored where this helper is used — the inbound + documents surface. The synthetic rep
+// lands in every timeline/audit trail as agent@whatsapp so writes are attributable.
+function agentIdentity(req) {
+  if (!cfg.agentApiToken) return null;
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
+  if (!m) return null;
+  const given = Buffer.from(m[1]);
+  const want = Buffer.from(cfg.agentApiToken);
+  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) return null;
+  return { id: -1, email: 'agent@whatsapp', name: 'WhatsApp Agent', isAgent: true };
+}
+
+// Inbound/back-office gate: an admin session OR the WhatsApp agent's bearer token.
+// (QA receive stays session-admin-only — stock writes need a human at the warehouse.)
+function requireInboundAccess(req, reply, done) {
+  const agent = agentIdentity(req);
+  if (agent) {
+    req.rep = agent;
+    return done();
+  }
+  if (cfg.authDisabled) {
+    req.rep = { id: 0, email: 'dev@local', name: 'Dev Rep' };
+    return done();
+  }
+  const payload = req.cookies?.session && verifySession(req.cookies.session);
+  if (!payload) {
+    reply.code(401).send({ error: 'unauthorized' });
+    return;
+  }
+  if (!isAdminEmail(payload.email)) {
+    reply.code(403).send({ error: 'admin only' });
+    return;
+  }
+  req.rep = { id: payload.sub, email: payload.email, name: payload.name };
+  done();
+}
+
 // ---- Health & identity ----
 let lastSyncError = null;
 
-app.get('/api/health', async () => ({
-  ok: true,
-  snapshotVersion: cache.version,
-  products: cache.products.length,
-  installed: !!(await getToken(cfg.shopifyStore).catch(() => null)),
-  apiVersion: cfg.apiVersion,
-  lastError: lastSyncError,
-  streamClients: clientCount(),
-}));
+app.get('/api/health', async () => {
+  const granted = await getGrantedScopes(cfg.shopifyStore).catch(() => null);
+  return {
+    ok: true,
+    snapshotVersion: cache.version,
+    products: cache.products.length,
+    installed: !!(await getToken(cfg.shopifyStore).catch(() => null)),
+    apiVersion: cfg.apiVersion,
+    lastError: lastSyncError,
+    streamClients: clientCount(),
+    // Scope diagnostics: customer/inventory/metafield writes 400 with ACCESS_DENIED until the
+    // token is re-authorized with every scope in cfg.scopes. scopesOk:false = re-auth needed.
+    scopesOk: scopesSatisfied(granted),
+    grantedScopes: granted || null,
+  };
+});
 
 app.get('/api/me', { preHandler: requireAuth }, async (req) => ({
   rep: { ...req.rep, isCaptain: isCaptainEmail(req.rep.email), isAdmin: isAdminEmail(req.rep.email) },
 }));
 
-// ---- Inbound shipments (back-office, ADMIN ONLY — reps never see this) ----
-app.get('/api/inbound', { preHandler: requireAuth }, async (req, reply) => {
-  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
-  return { shipments: await listShipments(), statuses: SHIPMENT_STATUSES };
-});
+// ---- Inbound shipments (back office: admin sessions + the WhatsApp agent's bearer token;
+// reps never see this) ----
+app.get('/api/inbound', { preHandler: requireInboundAccess }, async () => ({
+  shipments: await listShipments(),
+  statuses: SHIPMENT_STATUSES,
+}));
 
-app.post('/api/inbound', { preHandler: requireAuth }, async (req, reply) => {
-  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+app.post('/api/inbound', { preHandler: requireInboundAccess }, async (req, reply) => {
   try {
+    // Duplicate guard (agent writes only, so the app UI keeps its current behavior): the agent
+    // must not silently create a twin of a shipment that already exists under the same
+    // canonical reference. It gets the existing shipment back and must either update it or
+    // retry with allowDuplicate:true after a human confirms it's genuinely new.
+    if (req.rep.isAgent && req.body?.reference && req.body?.allowDuplicate !== true) {
+      const dupe = await findDuplicateByReference(req.body.reference);
+      if (dupe) {
+        return reply.code(409).send({
+          error: `A shipment with reference "${dupe.reference}" already exists (status: ${dupe.status}). Update it via POST /api/inbound/${dupe.id}, or pass allowDuplicate:true if this is genuinely a new shipment.`,
+          duplicate: true,
+          existing: dupe,
+        });
+      }
+    }
     const ship = await createShipment(req.rep.email, req.body || {});
     await refreshRollup();
     return { ok: true, shipment: ship };
@@ -117,8 +189,7 @@ app.post('/api/inbound', { preHandler: requireAuth }, async (req, reply) => {
   }
 });
 
-app.post('/api/inbound/:id', { preHandler: requireAuth }, async (req, reply) => {
-  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+app.post('/api/inbound/:id', { preHandler: requireInboundAccess }, async (req, reply) => {
   const ship = await updateShipment(req.params.id, req.rep.email, req.body || {});
   if (!ship) return reply.code(404).send({ error: 'not found' });
   await refreshRollup();
@@ -126,8 +197,7 @@ app.post('/api/inbound/:id', { preHandler: requireAuth }, async (req, reply) => 
 });
 
 // Parse a supplier ORD/PKLIST document (PDF or XLSX) into shipment lines for review.
-app.post('/api/inbound/parse', { preHandler: requireAuth }, async (req, reply) => {
-  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+app.post('/api/inbound/parse', { preHandler: requireInboundAccess }, async (req, reply) => {
   const file = await req.file();
   if (!file) return reply.code(400).send({ error: 'no file' });
   try {
@@ -140,12 +210,149 @@ app.post('/api/inbound/parse', { preHandler: requireAuth }, async (req, reply) =
 });
 
 // QA receive: counted / damaged / bins per line → good units up in Shopify (or queued on error).
+// Deliberately NOT open to the agent token — stock writes need a human at the warehouse.
 app.post('/api/inbound/:id/receive', { preHandler: requireAuth }, async (req, reply) => {
   if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
   const ship = await receiveShipment(req.params.id, req.rep.email, req.body || {});
   if (!ship) return reply.code(404).send({ error: 'not found' });
   await refreshRollup();
   return { ok: true, shipment: ship };
+});
+
+// ---- Shipment documents (customs/freight doc set; files live in Google Drive) ----
+
+async function shipmentDocsResponse(shipmentId) {
+  const documents = await listShipmentDocuments(shipmentId);
+  return { documents, checklist: checklistFor(documents) };
+}
+
+app.get('/api/inbound/:id/documents', { preHandler: requireInboundAccess }, async (req, reply) => {
+  if (!(await getShipment(req.params.id))) return reply.code(404).send({ error: 'not found' });
+  return shipmentDocsResponse(req.params.id);
+});
+
+// Register a document against a shipment. Timeline-stamped so the ShipmentEditor history reads
+// "Bill of Lading received via WhatsApp Agent".
+app.post('/api/inbound/:id/documents', { preHandler: requireInboundAccess }, async (req, reply) => {
+  const ship = await getShipment(req.params.id);
+  if (!ship) return reply.code(404).send({ error: 'not found' });
+  try {
+    const doc = await createDocument(req.rep.email, { ...req.body, shipmentId: ship.id, scope: 'shipment' });
+    await appendTimelineNote(ship.id, req.rep.email, `${doc.label} ${doc.status} via ${req.rep.name}`);
+    return { ok: true, document: doc, ...(await shipmentDocsResponse(ship.id)) };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+// Update a document's status (received → approved → filed) / Drive link / notes.
+app.post('/api/inbound/:id/documents/:docId', { preHandler: requireInboundAccess }, async (req, reply) => {
+  const ship = await getShipment(req.params.id);
+  if (!ship) return reply.code(404).send({ error: 'not found' });
+  const existing = await getDocument(req.params.docId);
+  if (!existing || existing.shipmentId !== ship.id) return reply.code(404).send({ error: 'document not found' });
+  try {
+    const doc = await updateDocument(req.params.docId, req.rep.email, req.body || {});
+    if (req.body?.status && req.body.status !== existing.status) {
+      await appendTimelineNote(ship.id, req.rep.email, `${doc.label} ${doc.status} by ${req.rep.name}`);
+    }
+    return { ok: true, document: doc, ...(await shipmentDocsResponse(ship.id)) };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+// Company-scoped standing documents (customs-broker POA etc.) — no shipment, optional expiry.
+app.get('/api/documents', { preHandler: requireInboundAccess }, async () => ({
+  documents: await listCompanyDocuments(),
+}));
+
+app.post('/api/documents', { preHandler: requireInboundAccess }, async (req, reply) => {
+  try {
+    return { ok: true, document: await createDocument(req.rep.email, { ...req.body, scope: 'company', shipmentId: null }) };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+app.post('/api/documents/:docId', { preHandler: requireInboundAccess }, async (req, reply) => {
+  const existing = await getDocument(req.params.docId);
+  if (!existing || existing.scope !== 'company') return reply.code(404).send({ error: 'document not found' });
+  try {
+    return { ok: true, document: await updateDocument(req.params.docId, req.rep.email, req.body || {}) };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+// ---- WhatsApp-agent context surface ----
+// The agent's world model in one call: live shipments with their document checklists, plus the
+// company-scoped standing docs. Received shipments drop out after 30 days; cancelled never show.
+
+function agentShipmentSummary(ship, docs) {
+  const daysLate =
+    ship.eta && !['received', 'cancelled'].includes(ship.status)
+      ? Math.max(0, Math.floor((Date.now() - new Date(`${ship.eta}T00:00:00Z`).getTime()) / 86400000))
+      : 0;
+  return {
+    id: ship.id,
+    status: ship.status,
+    origin: ship.origin,
+    reference: ship.reference,
+    carrier: ship.carrier,
+    tracking: ship.tracking,
+    eta: ship.eta,
+    daysLate,
+    paymentStatus: ship.paymentStatus,
+    paidAmount: ship.paidAmount,
+    invoiceTotal: ship.invoiceTotal,
+    notes: ship.notes,
+    units: (ship.lines || []).reduce((n, l) => n + (l.expected || 0), 0),
+    lineCount: (ship.lines || []).length,
+    docs: checklistFor(docs || []),
+    createdAt: ship.createdAt,
+    updatedAt: ship.updatedAt,
+  };
+}
+
+app.get('/api/agent/shipments', { preHandler: requireInboundAccess }, async () => {
+  const cutoff = Date.now() - 30 * 86400000;
+  const ships = (await listShipments()).filter(
+    (s) =>
+      s.status !== 'cancelled' &&
+      (s.status !== 'received' || new Date(s.updatedAt || s.createdAt).getTime() > cutoff)
+  );
+  const docsByShip = await listDocumentsForShipments(ships.map((s) => s.id));
+  return {
+    shipments: ships.map((s) => agentShipmentSummary(s, docsByShip.get(s.id))),
+    companyDocuments: await listCompanyDocuments(),
+    requiredDocs: cfg.requiredDocs,
+    statuses: SHIPMENT_STATUSES,
+    docStatuses: DOC_STATUSES,
+  };
+});
+
+// Full detail for one shipment (lines + timeline + documents) — what "status of 131/2026?" reads.
+app.get('/api/agent/shipments/:id', { preHandler: requireInboundAccess }, async (req, reply) => {
+  const ship = await getShipment(req.params.id);
+  if (!ship) return reply.code(404).send({ error: 'not found' });
+  const docs = await listShipmentDocuments(ship.id);
+  return { shipment: { ...agentShipmentSummary(ship, docs), lines: ship.lines, timeline: ship.timeline }, documents: docs };
+});
+
+// Resolve which shipment a document / message belongs to (ref, container, tracking number).
+app.get('/api/agent/match', { preHandler: requireInboundAccess }, async (req, reply) => {
+  const query = String(req.query?.q || '').trim();
+  if (!query) return reply.code(400).send({ error: 'q required' });
+  const matches = await findShipmentMatches(query);
+  const docsByShip = await listDocumentsForShipments(matches.map((m) => m.shipment.id));
+  return {
+    query,
+    matches: matches.map((m) => ({
+      ...agentShipmentSummary(m.shipment, docsByShip.get(m.shipment.id)),
+      matchedOn: m.matchedOn,
+    })),
+  };
 });
 
 // ---- Auth ----
