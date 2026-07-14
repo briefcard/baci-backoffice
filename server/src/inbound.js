@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import { pool, q } from './db.js';
 import { cfg } from './config.js';
 import { shopifyGraphQL } from './shopify.js';
+import { getToken } from './tokens.js';
 import { cache, setInboundOverlay } from './snapshot.js';
 
 const memShipments = new Map(); // id -> shipment (with .lines[]) when no DATABASE_URL
@@ -62,20 +63,75 @@ export function matchSku(sku) {
   return null;
 }
 
+// Live Shopify fallback for SKUs the snapshot cache doesn't know yet (e.g. a product added to
+// Shopify since the last 10-min snapshot rebuild). Batched search by SKU; returns a Map keyed by
+// lower-cased SKU -> { variantId, title, sku }. Case-insensitive, exact SKU (validated live:
+// `sku:` is an exact token match, not a prefix). Safe no-op when the store isn't installed.
+const LOOKUP_BY_SKU = `query($q: String!) {
+  productVariants(first: 100, query: $q) {
+    edges { node { id sku product { title } } }
+  }
+}`;
+
+export async function lookupVariantsBySkuLive(skus) {
+  const out = new Map();
+  const unique = [...new Set(
+    (skus || []).map((s) => String(s || '').trim()).filter(Boolean)
+  )];
+  if (!unique.length) return out;
+  if (!(await getToken(cfg.shopifyStore).catch(() => null))) return out; // not installed
+  const CHUNK = 40; // keep the search string well under Shopify's query-length limit
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const batch = unique.slice(i, i + CHUNK);
+    const q = batch.map((s) => `sku:"${s.replace(/"/g, ' ')}"`).join(' OR ');
+    let data;
+    try {
+      data = await shopifyGraphQL(LOOKUP_BY_SKU, { q });
+    } catch {
+      continue; // a bad batch shouldn't sink the rest
+    }
+    for (const edge of data?.productVariants?.edges || []) {
+      const v = edge.node;
+      const key = String(v.sku || '').trim().toLowerCase();
+      if (key && !out.has(key)) out.set(key, { variantId: v.id, title: v.product?.title || null, sku: v.sku });
+    }
+  }
+  return out;
+}
+
+// Resolve a set of shipment lines to Shopify variants: cache first, then ONE batched live lookup
+// for whatever the cache missed. Mutates & returns the same line objects (variantId/title filled).
+export async function resolveLines(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  const misses = [];
+  for (const l of list) {
+    if (l.variantId) continue;
+    const hit = matchSku(l.sku);
+    if (hit) {
+      l.variantId = hit.variant.id;
+      l.title = l.title || hit.product.title;
+    } else {
+      misses.push(l);
+    }
+  }
+  if (misses.length) {
+    const live = await lookupVariantsBySkuLive(misses.map((l) => l.sku));
+    for (const l of misses) {
+      const hit = live.get(String(l.sku || '').trim().toLowerCase());
+      if (hit) {
+        l.variantId = hit.variantId;
+        l.title = l.title || hit.title;
+      }
+    }
+  }
+  return list;
+}
+
 // ---- CRUD ----
 
 export async function createShipment(by, body = {}) {
   const now = new Date().toISOString();
-  const lines = sanitizeLines(body.lines).map((l) => {
-    if (!l.variantId) {
-      const hit = matchSku(l.sku);
-      if (hit) {
-        l.variantId = hit.variant.id;
-        l.title = l.title || hit.product.title;
-      }
-    }
-    return l;
-  });
+  const lines = await resolveLines(sanitizeLines(body.lines));
   const ship = {
     id: crypto.randomUUID(),
     status: SHIPMENT_STATUSES.includes(body.status) ? body.status : 'ordered',
@@ -210,14 +266,7 @@ export async function updateShipment(id, by, body = {}) {
     ];
   }
   if (body.lines !== undefined) {
-    next.lines = sanitizeLines(body.lines).map((l) => {
-      if (!l.variantId) {
-        const hit = matchSku(l.sku);
-        if (hit) {
-          l.variantId = hit.variant.id;
-          l.title = l.title || hit.product.title;
-        }
-      }
+    next.lines = (await resolveLines(sanitizeLines(body.lines))).map((l) => {
       // keep receive state from the existing line with the same id
       const prev = ship.lines.find((x) => x.id === l.id);
       if (prev?.receivedAt) {
@@ -420,6 +469,38 @@ export async function findDuplicateByReference(reference) {
 // (used for document events: "Bill of Lading received via WhatsApp").
 export async function appendTimelineNote(id, by, note) {
   return updateShipment(id, by, { statusNote: note });
+}
+
+// Re-run SKU resolution (cache + live Shopify) on a shipment's still-unmatched lines. For when
+// a SKU was added to Shopify after the shipment was created, or the snapshot was stale on import.
+// Returns { shipment, newlyMatched }. Only touches lines with no variantId (receive state safe).
+export async function rematchShipment(id, by) {
+  const ship = await getShipment(id);
+  if (!ship) return null;
+  const unmatched = ship.lines.filter((l) => !l.variantId);
+  if (!unmatched.length) return { shipment: ship, newlyMatched: 0 };
+  await resolveLines(unmatched); // mutates the line objects in place
+  const newlyMatched = unmatched.filter((l) => l.variantId);
+  if (!newlyMatched.length) return { shipment: ship, newlyMatched: 0 };
+
+  if (!pool) {
+    memShipments.set(id, ship);
+  } else {
+    for (const l of newlyMatched) {
+      await q('UPDATE inbound_lines SET variant_id=$2, title=$3 WHERE id=$1', [l.id, l.variantId, l.title]);
+    }
+  }
+  const now = new Date().toISOString();
+  ship.timeline = [
+    ...ship.timeline,
+    { at: now, status: ship.status, note: `Re-matched ${newlyMatched.length} SKU(s) to Shopify`, by },
+  ];
+  ship.updatedAt = now;
+  if (pool) {
+    await q('UPDATE inbound_shipments SET timeline=$2, updated_at=$3 WHERE id=$1', [id, JSON.stringify(ship.timeline), now]);
+  }
+  await refreshRollup();
+  return { shipment: ship, newlyMatched: newlyMatched.length };
 }
 
 // ---- Sales-floor rollup: per-variant incoming + earliest ETA from OPEN shipments ----

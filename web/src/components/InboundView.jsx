@@ -710,6 +710,30 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
   const [err, setErr] = useState('');
   const [showRFQ, setShowRFQ] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [rematching, setRematching] = useState(false);
+  const [rematchMsg, setRematchMsg] = useState('');
+
+  const unmatchedCount = lines.filter((l) => !l.variantId).length;
+
+  const rematch = async () => {
+    if (!shipment) return;
+    setRematching(true);
+    setRematchMsg('');
+    setErr('');
+    try {
+      const res = await api.inboundRematch(shipment.id);
+      setLines(res.shipment.lines);
+      setRematchMsg(
+        res.newlyMatched > 0
+          ? `Matched ${res.newlyMatched} SKU${res.newlyMatched > 1 ? 's' : ''} to Shopify.`
+          : 'No new matches — those SKUs are not in Shopify.'
+      );
+    } catch (e) {
+      setErr(e?.message || 'Re-match failed');
+    } finally {
+      setRematching(false);
+    }
+  };
 
   const copyCsv = async () => {
     const csv = ['SKU,Item,Qty', ...lines.filter((l) => l.expected > 0).map((l) => `${l.sku},"${(l.title || '').replace(/"/g, '""')}",${l.expected}`)].join('\n');
@@ -824,6 +848,15 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
             <input className="fqty" type="number" placeholder="Qty" value={qtyInput} onChange={(e) => setQtyInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLine()} />
             <button className="secondary small-btn" onClick={addLine}>Add</button>
           </div>
+          {shipment && unmatchedCount > 0 && (
+            <div className="rematch-row">
+              <span className="small err-inline">{unmatchedCount} SKU{unmatchedCount > 1 ? 's' : ''} not in catalog</span>
+              <button type="button" className="link" disabled={rematching} onClick={rematch}>
+                {rematching ? 'Matching…' : '↻ Re-match to Shopify'}
+              </button>
+            </div>
+          )}
+          {rematchMsg && <div className="muted small">{rematchMsg}</div>}
 
           {shipment?.id && <DocumentChecklist shipmentId={shipment.id} />}
 

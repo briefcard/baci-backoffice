@@ -468,3 +468,4 @@ main { padding-bottom: 96px; }
 .doc-add { margin-top: 10px; }
 .doc-add select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; background: #fff; }
 .doc-add input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }
+.rematch-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }

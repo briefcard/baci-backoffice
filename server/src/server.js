@@ -23,6 +23,7 @@ import {
   findShipmentMatches,
   findDuplicateByReference,
   appendTimelineNote,
+  rematchShipment,
   SHIPMENT_STATUSES,
 } from './inbound.js';
 import {
@@ -200,6 +201,14 @@ app.post('/api/inbound/:id', { preHandler: requireInboundAccess }, async (req, r
   if (!ship) return reply.code(404).send({ error: 'not found' });
   await refreshRollup();
   return { ok: true, shipment: ship };
+});
+
+// Re-resolve a shipment's unmatched SKUs against the cache + a live Shopify lookup (for SKUs
+// added to Shopify after the shipment was created, or a stale snapshot at import time).
+app.post('/api/inbound/:id/rematch', { preHandler: requireInboundAccess }, async (req, reply) => {
+  const res = await rematchShipment(req.params.id, req.rep.email);
+  if (!res) return reply.code(404).send({ error: 'not found' });
+  return { ok: true, ...res };
 });
 
 // Parse a supplier ORD/PKLIST document (PDF or XLSX) into shipment lines for review.
