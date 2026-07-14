@@ -30,9 +30,17 @@ services:
         value: "false"
       - key: REP_LOGINS # interim email+password auth, e.g. [{"email":"a@x.com","name":"A","password":"pw"}]
         sync: false
+      - key: AGENT_API_TOKEN # WhatsApp agent bearer token — set SAME value in the gomehagent service
+        sync: false
+      - key: REQUIRED_DOCS
+        value: commercial_invoice,packing_list,bill_of_lading,7501
       - key: JWT_SECRET
         generateValue: true
       - key: RESEND_API_KEY
+        sync: false
+      - key: AGENT_API_TOKEN # WhatsApp-agent (gomehagent) bearer token for the inbound/documents API; unset = disabled
+        sync: false
+      - key: REQUIRED_DOCS # per-shipment required customs docs; blank = default CI,PL,BL,7501
         sync: false
       - key: MAGIC_LINK_FROM
         value: Baci Reps <reps@bacimilanousa.com>

@@ -147,6 +147,16 @@ export const cfg = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  // Machine auth for the owner's WhatsApp agent (gomehagent, separate Render service). When set,
+  // requests with `Authorization: Bearer <token>` act as the synthetic identity agent@whatsapp
+  // on the INBOUND + DOCUMENTS routes ONLY (never customers/orders/checkout). Unset = disabled.
+  agentApiToken: (process.env.AGENT_API_TOKEN || '').trim(),
+  // Default per-shipment required-document set (owner-locked 2026-07-10: CI + PL + BL + 7501).
+  // The checklist treats these as 'required' until a matching document is registered.
+  requiredDocs: (process.env.REQUIRED_DOCS || 'commercial_invoice,packing_list,bill_of_lading,7501')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   jwtSecret: process.env.JWT_SECRET || 'dev-insecure-secret-change-me',
   databaseUrl: process.env.DATABASE_URL || '',
   resendApiKey: process.env.RESEND_API_KEY || '',

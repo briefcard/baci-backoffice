@@ -101,6 +101,29 @@ ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS payment_status TEXT NOT N
 ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS paid_amount NUMERIC;
 ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS invoice_total NUMERIC;
 
+-- Customs/freight documents per shipment (7501, BL, commercial invoice, packing list…) or
+-- company-scoped standing docs (customs-broker POA, with expiry). Files live in GOOGLE DRIVE —
+-- the WhatsApp agent owns Drive I/O; we keep metadata + links only.
+CREATE TABLE IF NOT EXISTS inbound_documents (
+  id TEXT PRIMARY KEY,
+  shipment_id TEXT REFERENCES inbound_shipments(id) ON DELETE CASCADE, -- NULL for company-scoped
+  scope TEXT NOT NULL DEFAULT 'shipment',   -- shipment | company
+  doc_type TEXT NOT NULL,                   -- commercial_invoice | packing_list | bill_of_lading | 7501 | poa | …
+  status TEXT NOT NULL DEFAULT 'received',  -- required | received | approved | filed
+  drive_file_id TEXT,
+  drive_url TEXT,
+  filename TEXT,
+  notes TEXT,
+  expires_at DATE,                          -- POA / standing docs
+  created_by TEXT,
+  approved_by TEXT,
+  approved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_inbound_documents_shipment ON inbound_documents(shipment_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_documents_scope ON inbound_documents(scope);
+
 -- Seed your ~10 reps (edit, then re-run `npm run migrate` or run manually):
 -- INSERT INTO reps (email, name) VALUES
 --   ('jane@bacimilanousa.com', 'Jane Doe'),

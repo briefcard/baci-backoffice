@@ -363,6 +363,65 @@ export async function receiveShipment(id, by, body = {}) {
   return ship;
 }
 
+// ---- Reference matching (WhatsApp-agent surface) ----
+// Shipment refs appear in many shapes across supplier docs: "131/2026", "PKLIST_131_2026",
+// "ORD 131-2026", "Orders 113/2026" buried in notes. Extract canonical number/year pairs plus
+// the raw token so container/tracking codes still match by substring.
+
+export function refTokens(str) {
+  const out = new Set();
+  const up = String(str || '').toUpperCase();
+  if (!up.trim()) return out;
+  for (const m of up.matchAll(/(\d{1,4})\s*[/\-_. ]\s*(20\d{2})/g)) {
+    out.add(`${Number(m[1])}/${m[2]}`);
+  }
+  return out;
+}
+
+// Find shipments a query (ref / container / tracking number) plausibly belongs to.
+// Returns [{ shipment, matchedOn: ['reference'|'tracking'|'notes'] }], strongest first.
+export async function findShipmentMatches(query) {
+  const raw = String(query || '').trim().toUpperCase();
+  if (!raw) return [];
+  const qTokens = refTokens(raw);
+  const matches = [];
+  for (const ship of await listShipments()) {
+    if (ship.status === 'cancelled') continue;
+    const matchedOn = [];
+    const shipTokens = refTokens(ship.reference);
+    if ([...qTokens].some((t) => shipTokens.has(t))) matchedOn.push('reference');
+    else if (ship.reference && raw.length >= 3 && ship.reference.toUpperCase().includes(raw)) matchedOn.push('reference');
+    if (ship.tracking && raw.length >= 4 && ship.tracking.toUpperCase().includes(raw)) matchedOn.push('tracking');
+    const noteTokens = refTokens(ship.notes);
+    if ([...qTokens].some((t) => noteTokens.has(t))) matchedOn.push('notes');
+    if (matchedOn.length) matches.push({ shipment: ship, matchedOn });
+  }
+  // reference hits outrank tracking outrank notes; then most recently updated first
+  const rank = (m) => (m.matchedOn.includes('reference') ? 0 : m.matchedOn.includes('tracking') ? 1 : 2);
+  matches.sort((a, b) => rank(a) - rank(b) || (a.shipment.updatedAt < b.shipment.updatedAt ? 1 : -1));
+  return matches;
+}
+
+// Duplicate guard for agent-created shipments: same canonical reference on any live shipment.
+export async function findDuplicateByReference(reference) {
+  const tokens = refTokens(reference);
+  const raw = String(reference || '').trim().toUpperCase();
+  if (!raw) return null;
+  for (const ship of await listShipments()) {
+    if (ship.status === 'cancelled') continue;
+    const shipTokens = refTokens(ship.reference);
+    if ([...tokens].some((t) => shipTokens.has(t))) return ship;
+    if (ship.reference && ship.reference.trim().toUpperCase() === raw) return ship;
+  }
+  return null;
+}
+
+// Append an audited note to a shipment's timeline without touching anything else
+// (used for document events: "Bill of Lading received via WhatsApp").
+export async function appendTimelineNote(id, by, note) {
+  return updateShipment(id, by, { statusNote: note });
+}
+
 // ---- Sales-floor rollup: per-variant incoming + earliest ETA from OPEN shipments ----
 // The snapshot overlays this so reps see reliable BackOrder info with zero Shopify writes.
 
