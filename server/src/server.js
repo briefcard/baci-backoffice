@@ -160,10 +160,16 @@ app.get('/api/me', { preHandler: requireAuth }, async (req) => ({
 
 // ---- Inbound shipments (back office: admin sessions + the WhatsApp agent's bearer token;
 // reps never see this) ----
-app.get('/api/inbound', { preHandler: requireInboundAccess }, async () => ({
-  shipments: await listShipments(),
-  statuses: SHIPMENT_STATUSES,
-}));
+app.get('/api/inbound', { preHandler: requireInboundAccess }, async () => {
+  const shipments = await listShipments();
+  const docsByShip = await listDocumentsForShipments(shipments.map((s) => s.id));
+  return {
+    // Attach each shipment's document checklist so the board can flag missing customs docs
+    // and the editor can render the checklist without a second round-trip per card.
+    shipments: shipments.map((s) => ({ ...s, docs: checklistFor(docsByShip.get(s.id) || []) })),
+    statuses: SHIPMENT_STATUSES,
+  };
+});
 
 app.post('/api/inbound', { preHandler: requireInboundAccess }, async (req, reply) => {
   try {

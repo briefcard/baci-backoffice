@@ -451,3 +451,20 @@ main { padding-bottom: 96px; }
   .pf-section-head, .pf-group-head { page-break-after: avoid; }
   .pf-totals, .pf-notes, .pf-terms { page-break-inside: avoid; }
 }
+
+/* Customs-document checklist (ShipmentEditor) */
+.doc-checklist { margin-top: 6px; }
+.doc-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--line); }
+.doc-row-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.doc-label { font-size: 14px; font-weight: 600; }
+.doc-link { font-size: 13px; text-decoration: none; }
+.doc-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.doc-actions .link { font-size: 13px; }
+.doc-pill { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 2px 7px; border-radius: 999px; }
+.doc-pill.required { background: #fde8e8; color: var(--out); }
+.doc-pill.received { background: #eef1ff; color: var(--accent); }
+.doc-pill.approved { background: #fff4d6; color: var(--low); }
+.doc-pill.filed { background: #e6f4ea; color: var(--in); }
+.doc-add { margin-top: 10px; }
+.doc-add select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; background: #fff; }
+.doc-add input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }

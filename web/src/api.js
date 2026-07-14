@@ -34,6 +34,10 @@ export const api = {
   inboundCreate: (body) => jpost('/api/inbound', body),
   inboundUpdate: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}`, body),
   inboundReceive: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}/receive`, body),
+  inboundDocs: (id) => jget(`/api/inbound/${encodeURIComponent(id)}/documents`),
+  inboundDocCreate: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}/documents`, body),
+  inboundDocUpdate: (id, docId, body) =>
+    jpost(`/api/inbound/${encodeURIComponent(id)}/documents/${encodeURIComponent(docId)}`, body),
   inboundParse: async (file) => {
     const fd = new FormData();
     fd.append('file', file);

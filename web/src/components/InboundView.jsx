@@ -546,6 +546,8 @@ function KanbanBoard({ ships, onMove, onOpen, onReceive }) {
                   {late > 0 ? ` · ${late}d late` : ''} · {ship.lines.reduce((n, l) => n + (l.expected || 0), 0)}u
                   {ship.invoiceTotal != null ? ` · ${money0(ship.invoiceTotal)}` : ''}
                   {ship.lines.some((l) => l.syncError) ? ' · ⚠' : ''}
+                  {ship.docs && !ship.docs.complete ? ` · 📄${ship.docs.missing.length}` : ''}
+                  {ship.docs && ship.docs.complete ? ' · 📄✅' : ''}
                 </div>
                 <div className="kmove">
                   <button disabled={idx === 0} onClick={() => requestMove(ship, cols[idx - 1]?.[0])}>◀</button>
@@ -559,6 +561,131 @@ function KanbanBoard({ ships, onMove, onOpen, onReceive }) {
           })}
         </div>
       ))}
+    </div>
+  );
+}
+
+// Customs/freight document checklist for a shipment. The WhatsApp agent registers docs
+// (files live in Google Drive); this is the human view — what's in, what's still required,
+// and one-tap received → approved → filed. Required set = CI / Packing List / BL / 7501.
+const DOC_STATUS_FLOW = ['required', 'received', 'approved', 'filed'];
+const DOC_STATUS_LABEL = { required: 'Required', received: 'Received', approved: 'Approved', filed: 'Filed' };
+const DOC_ADD_TYPES = [
+  ['commercial_invoice', 'Commercial Invoice'],
+  ['packing_list', 'Packing List'],
+  ['bill_of_lading', 'Bill of Lading'],
+  ['7501', 'CBP 7501'],
+  ['arrival_notice', 'Arrival Notice'],
+  ['isf', 'ISF (10+2)'],
+  ['delivery_order', 'Delivery Order'],
+  ['freight_invoice', 'Freight Invoice'],
+];
+
+function DocumentChecklist({ shipmentId }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const [addType, setAddType] = useState('commercial_invoice');
+  const [addUrl, setAddUrl] = useState('');
+
+  const load = async () => {
+    try {
+      setData(await api.inboundDocs(shipmentId));
+    } catch (e) {
+      setErr(e?.message || 'Could not load documents');
+    }
+  };
+  useEffect(() => {
+    load();
+  }, [shipmentId]);
+
+  // Advance/register a checklist item. Virtual 'required' rows (no docId) get created on first
+  // set; real rows get their status updated.
+  const setStatus = async (item, status) => {
+    setBusy(item.docType);
+    setErr('');
+    try {
+      if (item.docId) await api.inboundDocUpdate(shipmentId, item.docId, { status });
+      else await api.inboundDocCreate(shipmentId, { docType: item.docType, status });
+      await load();
+    } catch (e) {
+      setErr(e?.message || 'Update failed');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const addDoc = async () => {
+    setBusy('add');
+    setErr('');
+    try {
+      await api.inboundDocCreate(shipmentId, {
+        docType: addType,
+        status: 'received',
+        driveUrl: addUrl.trim() || undefined,
+      });
+      setAddUrl('');
+      await load();
+    } catch (e) {
+      setErr(e?.message || 'Could not add document');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  if (!data) return <div className="muted small">Loading documents…</div>;
+  const { checklist } = data;
+
+  return (
+    <div className="doc-checklist">
+      <div className="lane-head">
+        Customs documents{' '}
+        {checklist.complete ? (
+          <span className="doc-pill filed">✅ complete</span>
+        ) : (
+          <span className="doc-pill required">{checklist.missing.length} missing</span>
+        )}
+      </div>
+      {checklist.items.map((item) => (
+        <div className="doc-row" key={item.docType}>
+          <div className="doc-row-main">
+            <span className={`doc-pill ${item.status}`}>{DOC_STATUS_LABEL[item.status]}</span>
+            <span className="doc-label">
+              {item.label}
+              {item.required && <span className="muted small"> · required</span>}
+            </span>
+            {item.driveUrl && (
+              <a className="link doc-link" href={item.driveUrl} target="_blank" rel="noreferrer">
+                📄 open
+              </a>
+            )}
+          </div>
+          <div className="doc-actions">
+            {DOC_STATUS_FLOW.filter((s) => s !== 'required' && s !== item.status).map((s) => (
+              <button
+                key={s}
+                className="link"
+                disabled={busy === item.docType}
+                onClick={() => setStatus(item, s)}
+              >
+                {s === 'received' ? 'mark received' : s === 'approved' ? 'approve' : 'file'}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="inb-add doc-add">
+        <select value={addType} onChange={(e) => setAddType(e.target.value)}>
+          {DOC_ADD_TYPES.map(([k, l]) => (
+            <option key={k} value={k}>{l}</option>
+          ))}
+        </select>
+        <input placeholder="Drive link (optional)" value={addUrl} onChange={(e) => setAddUrl(e.target.value)} />
+        <button className="secondary small-btn" disabled={busy === 'add'} onClick={addDoc}>
+          {busy === 'add' ? '…' : 'Add'}
+        </button>
+      </div>
+      {err && <div className="err">{err}</div>}
     </div>
   );
 }
@@ -697,6 +824,8 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
             <input className="fqty" type="number" placeholder="Qty" value={qtyInput} onChange={(e) => setQtyInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLine()} />
             <button className="secondary small-btn" onClick={addLine}>Add</button>
           </div>
+
+          {shipment?.id && <DocumentChecklist shipmentId={shipment.id} />}
 
           {shipment?.timeline?.length > 0 && (
             <>
