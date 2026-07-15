@@ -8,11 +8,12 @@ import fastifyStatic from '@fastify/static';
 import { cfg, scopesSatisfied, isCaptainEmail, isAdminEmail } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { buildSnapshot, snapshotResponse, publicFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
+import { buildSnapshot, snapshotResponse, publicFormResponse, personalizedFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
 import { createOrders } from './orders.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
 import { createPendingRow, savePending, listPending, getPending, markHandled } from './pending.js';
+import { createLink, resolveLink } from './links.js';
 import {
   createShipment,
   listShipments,
@@ -504,18 +505,44 @@ app.post('/api/order-forms', { preHandler: requireAuth }, async (req, reply) =>
   })
 );
 
+// Personalized customer form links: unique URL per customer (lookbook + curated collections +
+// prefilled info). Submissions credit the rep who created the link.
+app.post('/api/form-links', { preHandler: requireAuth }, async (req, reply) => {
+  try {
+    const link = await createLink(req.rep.email, req.body || {});
+    return { ok: true, token: link.token, url: `${cfg.appUrl}/?form=${link.token}` };
+  } catch (err) {
+    req.log.error({ err }, 'form link create failed');
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
 // Public (QR) catalog — code-gated; strips the rep-only negotiation config.
 app.get('/api/form/catalog', async (req, reply) => {
+  const link = await resolveLink(req.query?.code).catch(() => null);
+  if (link) return personalizedFormResponse(link);
   if (!formCodeOk(req)) return reply.code(401).send({ error: 'invalid form code' });
   return publicFormResponse();
 });
 
 // Public (QR) submission — code-gated, unattributed (rep: none; the pool routes it).
 app.post('/api/form/submit', async (req, reply) => {
-  if (!formCodeOk(req)) return reply.code(401).send({ error: 'invalid form code' });
+  const link = await resolveLink(req.query?.code).catch(() => null);
+  if (!link && !formCodeOk(req)) return reply.code(401).send({ error: 'invalid form code' });
+  const submitted = req.body?.customer || {};
+  const customer = link
+    ? {
+        company: submitted.company || link.customer?.company,
+        contact: submitted.contact || link.customer?.contact,
+        email: submitted.email || link.customer?.email,
+        phone: submitted.phone || link.customer?.phone,
+      }
+    : submitted;
   return acceptSubmission(reply, {
-    source: 'qr',
-    customer: req.body?.customer,
+    source: link ? 'link' : 'qr',
+    repEmail: link?.createdBy || undefined,
+    repName: link ? 'Form link' : undefined,
+    customer,
     lines: req.body?.lines,
     notes: req.body?.notes,
   });

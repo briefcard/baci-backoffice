@@ -9,7 +9,7 @@ import { api } from '../api.js';
 //
 // mode 'kiosk'  — a rep's booth tablet, locked; exit requires the rep's password.
 // mode 'public' — a customer's own phone via QR (?form=<code>); no rep UI at all.
-export function OrderFormView({ snapshot, config, availability, mode, me, code, onExit }) {
+export function OrderFormView({ snapshot, config, availability, mode, me, code, onExit, prefill }) {
   const currency = config?.currency || 'USD';
   const pct = config?.discountPct ?? 50;
   const [qty, setQty] = useState({}); // variantId -> quantity
@@ -165,6 +165,7 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
       {review && (
         <ReviewSheet
           chosen={chosen}
+          prefill={prefill}
           availability={availability}
           currency={currency}
           mode={mode}
@@ -226,11 +227,11 @@ function FormRow({ product, availability, pct, currency, qty, setQ }) {
   );
 }
 
-function ReviewSheet({ chosen, availability, currency, mode, code, onBack, onDone, setQ }) {
-  const [company, setCompany] = useState('');
-  const [contact, setContact] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+function ReviewSheet({ chosen, availability, currency, mode, code, onBack, onDone, setQ, prefill }) {
+  const [company, setCompany] = useState(prefill?.company || '');
+  const [contact, setContact] = useState(prefill?.contact || '');
+  const [email, setEmail] = useState(prefill?.email || '');
+  const [phone, setPhone] = useState(prefill?.phone || '');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');

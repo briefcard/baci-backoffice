@@ -25,6 +25,7 @@ export const api = {
   searchCustomers: (q) => jget(`/api/customers/search?q=${encodeURIComponent(q)}`),
   upsertCustomer: (profile) => jpost('/api/customers', profile),
   checkoutQueue: () => jget('/api/checkout/queue'),
+  createFormLink: (body) => jpost('/api/form-links', body),
   // Customer order form: kiosk submits under the rep session; QR uses the per-event code.
   submitOrderForm: (payload) => jpost('/api/order-forms', payload),
   publicFormCatalog: (code) => jget(`/api/form/catalog?code=${encodeURIComponent(code)}`),

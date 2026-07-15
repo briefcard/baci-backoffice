@@ -96,6 +96,19 @@ CREATE TABLE IF NOT EXISTS inbound_lines (
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_lines_shipment ON inbound_lines(shipment_id);
 
+-- Personalized customer order-form links (lookbook + prefilled form + curated collections).
+CREATE TABLE IF NOT EXISTS form_links (
+  token TEXT PRIMARY KEY,
+  customer JSONB,                -- { id, company, contact, email, phone }
+  collections JSONB NOT NULL DEFAULT '[]', -- collection handles; empty = full catalog
+  note TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  active BOOLEAN NOT NULL DEFAULT true,
+  hits INTEGER NOT NULL DEFAULT 0,
+  last_used_at TIMESTAMPTZ
+);
+
 -- Supplier-invoice payment tracking on shipments (added later; idempotent).
 ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'unpaid'; -- unpaid | deposit_paid | paid
 ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS paid_amount NUMERIC;

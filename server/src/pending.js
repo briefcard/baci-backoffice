@@ -37,7 +37,7 @@ export function createPendingRow({ source, repEmail, repName, customer, lines, n
   const row = {
     id: crypto.randomUUID(),
     status: 'pending',
-    source: source === 'qr' ? 'qr' : 'kiosk',
+    source: ['qr', 'link', 'kiosk'].includes(source) ? source : 'kiosk',
     repEmail: repEmail || null,
     repName: repName || null,
     customer: sanitizeCustomer(customer),

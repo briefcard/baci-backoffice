@@ -10,6 +10,7 @@ import { OrderFormView } from './components/OrderFormView.jsx';
 import { PendingView } from './components/PendingView.jsx';
 import { InboundView } from './components/InboundView.jsx';
 import { PrintDoc, BlankFormDoc, OrderCopyDoc } from './components/PrintDocs.jsx';
+import { Lookbook } from './components/Lookbook.jsx';
 import { cart, useCart, cartCount, cartSubtotal } from './cart.js';
 
 function useSync() {
@@ -52,6 +53,7 @@ function PublicOrderForm({ initialCode }) {
   const [entry, setEntry] = useState(initialCode);
   const [catalog, setCatalog] = useState(null);
   const [state, setState] = useState('loading'); // loading | ready | badcode | error
+  const [stage, setStage] = useState('auto'); // personalized links open on the lookbook first
 
   useEffect(() => {
     let dead = false;
@@ -96,6 +98,12 @@ function PublicOrderForm({ initialCode }) {
   const availability = {};
   for (const p of catalog.products || []) for (const v of p.variants) availability[v.id] = v.available ?? 0;
 
+  // Personalized links open on the lookbook (curated collections, big imagery), then flow into
+  // the order form with the customer's info prefilled. Plain event codes go straight to the form.
+  if (catalog.link && stage !== 'form') {
+    return <Lookbook catalog={catalog} onStart={() => setStage('form')} />;
+  }
+
   return (
     <OrderFormView
       snapshot={catalog}
@@ -103,6 +111,7 @@ function PublicOrderForm({ initialCode }) {
       availability={availability}
       mode="public"
       code={code}
+      prefill={catalog.link || null}
     />
   );
 }

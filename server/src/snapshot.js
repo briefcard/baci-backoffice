@@ -19,6 +19,7 @@ export const cache = {
   products: [],
   availability: new Map(), // variantId -> available-to-sell (sellable locations)
   invItemToVariant: new Map(), // numeric inventory_item_id -> variantId
+  collectionImages: new Map(), // handle -> image url (lookbook heroes)
 };
 
 function parseMoney(value) {
@@ -138,6 +139,14 @@ query Snapshot($cursor: String, $loc: ID!) {
 
 export async function buildSnapshot() {
   await loadConfig();
+  try {
+    const ci = await shopifyGraphQL('query { collections(first: 60) { nodes { handle image { url } } } }');
+    cache.collectionImages = new Map(
+      (ci.collections?.nodes || []).filter((c) => c.image?.url).map((c) => [c.handle, c.image.url])
+    );
+  } catch {
+    /* heroes are cosmetic — keep the old map */
+  }
   const products = [];
   const availability = new Map();
   const invItemToVariant = new Map();
@@ -213,6 +222,7 @@ function formCollections() {
   return cfg.orderFormCollections.map((handle) => ({
     handle,
     title: titles.get(handle) || handle.replace(/-/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
+    image: cache.collectionImages.get(handle) || null,
   }));
 }
 
@@ -250,6 +260,29 @@ export function snapshotResponse() {
     config: { ...cache.config, leadTime: cfg.leadTimeText, mainCollections: cfg.mainCollections, formCollections: formCollections() },
     products: overlaidProducts(),
   };
+}
+
+// Personalized link response: same stripped public payload, but the catalog is trimmed to the
+// customer's curated collections and the link's prefill/customer info rides along.
+export function personalizedFormResponse(link) {
+  const base = publicFormResponse();
+  const wanted = (link.collections || []).filter(Boolean);
+  if (wanted.length) {
+    const set = new Set(wanted);
+    base.products = base.products.filter((p) => (p.collections || []).some((c) => set.has(c.handle)));
+    base.config = {
+      ...base.config,
+      formCollections: base.config.formCollections.filter((c) => set.has(c.handle)),
+    };
+  }
+  base.link = {
+    company: link.customer?.company || '',
+    contact: link.customer?.contact || '',
+    email: link.customer?.email || '',
+    phone: link.customer?.phone || '',
+    note: link.note || '',
+  };
+  return base;
 }
 
 // What the PUBLIC (QR) order form gets: same catalog + unit-pricing inputs, but WITHOUT the

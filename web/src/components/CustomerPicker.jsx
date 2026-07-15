@@ -55,6 +55,7 @@ export function CustomerPicker({ value, onChange, mainCollections = [] }) {
   const [form, setForm] = useState(emptyForm());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [share, setShare] = useState(false);
   const timer = useRef(null);
 
   useEffect(() => {
@@ -153,6 +154,9 @@ export function CustomerPicker({ value, onChange, mainCollections = [] }) {
           )}
         </div>
         <div className="cust-picked-actions">
+          <button type="button" className="link" onClick={() => setShare(true)}>
+            🔗 Share form
+          </button>
           <button type="button" className="link" onClick={editPicked}>
             Edit
           </button>
@@ -160,6 +164,7 @@ export function CustomerPicker({ value, onChange, mainCollections = [] }) {
             Change
           </button>
         </div>
+        {share && <ShareFormSheet customer={value} mainCollections={mainCollections} onClose={() => setShare(false)} />}
       </div>
     );
   }
@@ -270,6 +275,101 @@ export function CustomerPicker({ value, onChange, mainCollections = [] }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// Share a personalized order-form link: lookbook + curated collections + prefilled info,
+// preselected from the customer's stored collections of interest. Submissions credit this rep.
+function ShareFormSheet({ customer, mainCollections = [], onClose }) {
+  const interested = new Set(customer.collectionsOfInterest || []);
+  const [selected, setSelected] = useState(
+    () => new Set(mainCollections.filter((c) => interested.has(c.title)).map((c) => c.handle))
+  );
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [url, setUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const toggle = (handle) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(handle)) n.delete(handle);
+      else n.add(handle);
+      return n;
+    });
+
+  const create = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const res = await api.createFormLink({
+        customer: { id: customer.id, company: customer.name, email: customer.email, phone: customer.phone },
+        collections: [...selected],
+        note,
+      });
+      setUrl(res.url);
+    } catch (e) {
+      setErr(e?.message || 'Could not create the link');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Copy the link:', url);
+    }
+  };
+
+  return (
+    <div className="cart-overlay" onClick={onClose}>
+      <div className="cart exit-gate" onClick={(e) => e.stopPropagation()}>
+        <div className="cart-head">
+          <strong>Share form · {customer.name || customer.email}</strong>
+          <button type="button" className="x" onClick={onClose}>✕</button>
+        </div>
+        <div className="cart-body">
+          {!url ? (
+            <>
+              <div className="muted small">
+                Pick the collections for their lookbook + form (empty = full catalog). Their info
+                will be prefilled and orders from this link are credited to you.
+              </div>
+              <div className="chips">
+                {mainCollections.map((c) => (
+                  <button
+                    type="button"
+                    key={c.handle}
+                    className={selected.has(c.handle) ? 'chip on' : 'chip'}
+                    onClick={() => toggle(c.handle)}
+                  >
+                    {c.title}
+                  </button>
+                ))}
+              </div>
+              <textarea placeholder="Personal note shown on their lookbook (optional)" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+              {err && <div className="err">{err}</div>}
+              <button type="button" className="primary" disabled={busy} onClick={create}>
+                {busy ? 'Creating…' : 'Create personal link'}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="muted small">Send this link — it opens their lookbook and order form:</div>
+              <div className="share-url">{url}</div>
+              <button type="button" className="primary" onClick={copy}>
+                {copied ? '✓ Copied' : 'Copy link'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
