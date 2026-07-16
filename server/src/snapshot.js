@@ -19,7 +19,8 @@ export const cache = {
   products: [],
   availability: new Map(), // variantId -> available-to-sell (sellable locations)
   invItemToVariant: new Map(), // numeric inventory_item_id -> variantId
-  collectionImages: new Map(), // handle -> image url (lookbook heroes)
+  collectionImages: new Map(), // handle -> native collection image url
+  collectionHeroes: new Map(), // handle -> { hero, extras[] } from custom.collection_* metafields
 };
 
 function parseMoney(value) {
@@ -140,12 +141,26 @@ query Snapshot($cursor: String, $loc: ID!) {
 export async function buildSnapshot() {
   await loadConfig();
   try {
-    const ci = await shopifyGraphQL('query { collections(first: 60) { nodes { handle image { url } } } }');
-    cache.collectionImages = new Map(
-      (ci.collections?.nodes || []).filter((c) => c.image?.url).map((c) => [c.handle, c.image.url])
-    );
+    const ci = await shopifyGraphQL(`query { collections(first: 60) { nodes {
+      handle image { url }
+      header: metafield(namespace: "custom", key: "collection_header") { reference { ... on MediaImage { image { url } } } }
+      mob: metafield(namespace: "custom", key: "collection_image_mobile") { reference { ... on MediaImage { image { url } } } }
+      img2: metafield(namespace: "custom", key: "collection_image_2") { reference { ... on MediaImage { image { url } } } }
+      img3: metafield(namespace: "custom", key: "collection_image_3") { reference { ... on MediaImage { image { url } } } }
+    } } }`);
+    const imgOf = (m) => m?.reference?.image?.url || null;
+    cache.collectionImages = new Map();
+    cache.collectionHeroes = new Map();
+    for (const c of ci.collections?.nodes || []) {
+      if (c.image?.url) cache.collectionImages.set(c.handle, c.image.url);
+      // Owner-curated lifestyle heroes win over the native collection image; the mobile crop
+      // fits the lookbook's portrait layout best.
+      const hero = imgOf(c.header) || imgOf(c.mob) || imgOf(c.img2) || c.image?.url || null;
+      const extras = [imgOf(c.img2), imgOf(c.img3)].filter((u) => u && u !== hero);
+      if (hero) cache.collectionHeroes.set(c.handle, { hero, extras });
+    }
   } catch {
-    /* heroes are cosmetic — keep the old map */
+    /* heroes are cosmetic — keep the old maps */
   }
   const products = [];
   const availability = new Map();
@@ -203,6 +218,35 @@ export async function buildSnapshot() {
     cursor = conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
   } while (cursor);
 
+  // Curated product galleries (custom.image_and_video; native product images as fallback) —
+  // a separate paginated pass so the main snapshot query stays inside Shopify's cost budget.
+  try {
+    const galleries = new Map();
+    let gc = null;
+    do {
+      const gd = await shopifyGraphQL(
+        `query($c: String) { products(first: 50, after: $c) { nodes {
+          id
+          gallery: metafield(namespace: "custom", key: "image_and_video") {
+            references(first: 5) { nodes { ... on MediaImage { image { url } } } }
+          }
+          images(first: 4) { nodes { url } }
+        } pageInfo { hasNextPage endCursor } } }`,
+        { c: gc }
+      );
+      for (const n of gd.products.nodes) {
+        const curated = (n.gallery?.references?.nodes || []).map((x) => x.image?.url).filter(Boolean);
+        const native = (n.images?.nodes || []).map((x) => x.url).filter(Boolean);
+        const urls = [...new Set(curated.length ? curated : native)].slice(0, 4);
+        if (urls.length) galleries.set(n.id, urls);
+      }
+      gc = gd.products.pageInfo.hasNextPage ? gd.products.pageInfo.endCursor : null;
+    } while (gc);
+    for (const p of products) p.gallery = galleries.get(p.id) || (p.image ? [p.image] : []);
+  } catch {
+    for (const p of products) p.gallery = p.image ? [p.image] : [];
+  }
+
   cache.products = products;
   cache.availability = availability;
   cache.invItemToVariant = invItemToVariant;
@@ -222,7 +266,8 @@ function formCollections() {
   return cfg.orderFormCollections.map((handle) => ({
     handle,
     title: titles.get(handle) || handle.replace(/-/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
-    image: cache.collectionImages.get(handle) || null,
+    image: cache.collectionHeroes.get(handle)?.hero || cache.collectionImages.get(handle) || null,
+    images: cache.collectionHeroes.get(handle)?.extras || [],
   }));
 }
 
@@ -304,6 +349,10 @@ export function loadSeed() {
   if (!fs.existsSync(url)) return false;
   const seed = JSON.parse(fs.readFileSync(url, 'utf8'));
   cache.products = (seed.products || []).filter((p) => !/b2b/i.test(p.title || ''));
+  for (const p of cache.products) p.gallery = p.gallery || (p.image ? [p.image] : []);
+  if (seed.collectionHeroes) {
+    cache.collectionHeroes = new Map(Object.entries(seed.collectionHeroes));
+  }
   if (seed.config) {
     cache.config = {
       depositPct: { new_customer: cfg.defaultDepositNewPct, repeat_customer: cfg.defaultDepositRepeatPct },

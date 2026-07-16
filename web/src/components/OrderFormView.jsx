@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { unitWholesalePrice, money } from '../domain.js';
 import { buildFormSections, submitOrQueue } from '../formSections.js';
 import { api } from '../api.js';
+import { ImageLightbox } from './Lookbook.jsx';
 
 // The digitized paper order form. Customers browse collection sections (same order as the
 // printed catalogue), punch in quantities, and submit — WITHOUT ever seeing a total: unit
@@ -143,6 +144,7 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
                     currency={currency}
                     qty={qty}
                     setQ={setQ}
+                    lead={config?.leadTime || '6–10 weeks'}
                   />
                 ))}
               </div>
@@ -180,10 +182,17 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
   );
 }
 
-function FormRow({ product, availability, pct, currency, qty, setQ }) {
+function FormRow({ product, availability, pct, currency, qty, setQ, lead }) {
+  const [zoom, setZoom] = useState(false);
+  const gallery = product.gallery?.length ? product.gallery : product.image ? [product.image] : [];
   return (
     <div className="frow">
-      {product.image ? <img className="fimg" src={product.image} alt="" loading="lazy" /> : <div className="fimg ph" />}
+      {product.image ? (
+        <img className="fimg fimg-tap" src={product.image} alt="" loading="lazy" onClick={() => setZoom(true)} />
+      ) : (
+        <div className="fimg ph" />
+      )}
+      {zoom && <ImageLightbox images={gallery} title={product.title} onClose={() => setZoom(false)} />}
       <div className="fbody">
         <div className="ftitle">{product.title}</div>
         <div className="fmeta muted small">
@@ -202,7 +211,7 @@ function FormRow({ product, availability, pct, currency, qty, setQ }) {
                 <div className="fvar-main">
                   <span className="fsku">{v.sku || '—'}</span>
                   {v.title && v.title !== 'Default Title' && <span className="fvtitle">{v.title}</span>}
-                  {out && <span className="flater">deposit · ~{config?.leadTime || '6–10 weeks'}</span>}
+                  {out && <span className="flater">deposit · ~{lead}</span>}
                   {!out && over > 0 && <span className="flater">+{over} on deposit</span>}
                 </div>
                 <span className="fpricewrap">

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke": "esbuild ssr-smoke.jsx --bundle --platform=node --format=esm --loader:.js=jsx --outfile=ssr-smoke.out.mjs --external:react --external:react-dom && node ssr-smoke.out.mjs"
   },
   "dependencies": {
     "dexie": "^4.0.8",
