@@ -75,6 +75,11 @@ installed:true, ~279 products, reps connected.
   - Totals are NEVER computed in customer mode. Over-stock qty flagged "+N on deposit". Product
     photos are tap-to-zoom (gallery lightbox). Submissions land in `pending_orders` (source
     kiosk/qr/link; link submissions credited to the creating rep).
+- **Lookbook is SHOPPABLE** (`aef4666`): every card has per-variant qty inputs (price/MSRP + the
+  form's oversell chips); bar swaps to "N units · M items — Review & submit" → shared ReviewSheet
+  (now lives in Lookbook.jsx) → pending pool. qty state is owned by the PARENT (PublicOrderForm /
+  FormStage) and shared with OrderFormView — switching lookbook↔form keeps the order. The form is
+  now optional ("Browse the full order form ▸").
 - **Lookbook** (`Lookbook.jsx`, public link landing): blue hero + logo + "Curated for <company>"
   + optional personal note; per-collection **lifestyle hero banners** (from the owner's
   `custom.collection_*` metafields) + a supporting image strip + image-forward product grids at
