@@ -8,15 +8,33 @@
   --low: #b8860b;
   --out: #b00020;
   --accent: #2B1AFE; /* bacimilanousa.com theme color */
-  /* Editorial display serif for the lookbook — Didone faces ship on the Apple devices this runs
-     on (kiosk iPads, customer iPhones); graceful serif fallback elsewhere. */
-  --serif: 'Didot', 'Bodoni 72', 'Bodoni MT', 'Playfair Display', 'Times New Roman', Georgia, serif;
+  /* Inter — the exact typeface bacimilanousa.com uses (Shopify theme: inter_n4/n5/n7).
+     Self-hosted below so the PWA stays offline-first and on-brand. */
+  --brand-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Brand font, self-hosted (same woff2 files served on bacimilanousa.com) */
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/inter-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/fonts/inter-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url('/fonts/inter-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: italic; font-weight: 400; font-display: swap;
+  src: url('/fonts/inter-400italic.woff2') format('woff2');
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--brand-sans);
   background: var(--bg);
   color: var(--ink);
   -webkit-text-size-adjust: 100%;
@@ -489,13 +507,14 @@ main { padding-bottom: 96px; }
 .lb-hero-in { position: relative; max-width: 780px; }
 .lb-hero .pf-logo { height: clamp(38px, 6vw, 54px); margin: 0 auto; }
 
-/* Shared editorial primitives */
-.lb-eyebrow { display: block; text-transform: uppercase; letter-spacing: .34em; font-size: 11px; font-weight: 700; margin-bottom: 20px; opacity: .9; }
-.lb-display { font-family: var(--serif); font-weight: 500; line-height: 1.03; letter-spacing: .005em; }
+/* Shared editorial primitives — set in the brand typeface (Inter), luxury-editorial treatment:
+   tight tracking on large display, wide tracking on small uppercase labels. */
+.lb-eyebrow { display: block; text-transform: uppercase; letter-spacing: .34em; font-size: 11px; font-weight: 600; margin-bottom: 20px; opacity: .9; }
+.lb-display { font-family: var(--brand-sans); font-weight: 500; line-height: 1.05; letter-spacing: -.02em; }
 
 .lb-hero h1.lb-display { font-size: clamp(36px, 7.5vw, 62px); margin: 24px 0 8px; }
 .lb-hero-sub { margin: 16px 0 0; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; opacity: .92; }
-.lb-note { font-family: var(--serif); font-style: italic; font-size: clamp(17px, 2.4vw, 21px); margin: 20px 0 0; opacity: .95; }
+.lb-note { font-style: italic; font-size: clamp(16px, 2.2vw, 19px); margin: 20px 0 0; opacity: .95; }
 .lb-cta {
   margin-top: 30px; display: inline-block; cursor: pointer;
   background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.85); border-radius: 0;
@@ -529,15 +548,17 @@ main { padding-bottom: 96px; }
 @media (min-width: 1040px) { .lb-grid { grid-template-columns: repeat(4, 1fr); } }
 
 .lb-card { margin: 0; background: none; border: 0; border-radius: 0; overflow: visible; }
-.lb-card > img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; background: #f4f4f5; cursor: zoom-in; }
+/* Product photo fits WHOLE (contain) on a clean tile — never cropped, whichever carousel image
+   is selected. Lifestyle heroes/banners above stay full-bleed (cover); this is products only. */
+.lb-card > img { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; display: block; background: #f4f4f5; cursor: zoom-in; }
 .lb-ph { width: 100%; aspect-ratio: 3 / 4; background: #f0f0f2; }
 .lb-card figcaption { padding: 15px 2px 0; display: grid; gap: 6px; }
 .lb-title { font-size: 12px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; line-height: 1.4; }
-.lb-price { font-family: var(--serif); font-size: 17px; font-weight: 500; }
-.lb-price small { font-family: inherit; font-weight: 500; font-size: 11px; letter-spacing: .05em; color: var(--muted); text-transform: uppercase; }
+.lb-price { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.lb-price small { font-weight: 500; font-size: 11px; letter-spacing: .05em; color: var(--muted); text-transform: uppercase; }
 
 .lb-thumbs { display: flex; gap: 6px; padding: 8px 2px 0; }
-.lb-thumbs img { width: 42px; height: 42px; object-fit: cover; border-radius: 0; opacity: .5; cursor: pointer; border: 1px solid transparent; }
+.lb-thumbs img { width: 42px; height: 42px; object-fit: contain; background: #f4f4f5; border-radius: 0; opacity: .5; cursor: pointer; border: 1px solid transparent; }
 
 /* Fixed submit/CTA bar — squared and letter-spaced to match */
 .lb-bar { position: fixed; border-radius: 0; max-width: none; text-transform: uppercase; letter-spacing: .12em; font-size: 13px; font-weight: 700; }

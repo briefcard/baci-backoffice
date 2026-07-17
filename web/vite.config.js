@@ -20,7 +20,9 @@ export default defineConfig({
         start_url: '/',
       },
       workbox: {
-        // App shell is precached; product images cached at runtime. Catalog data lives in IndexedDB.
+        // App shell + self-hosted brand fonts precached; product images cached at runtime.
+        // Catalog data lives in IndexedDB.
+        globPatterns: ['**/*.{js,css,html,woff2,ico,png,svg}'],
         navigateFallback: 'index.html',
         // CRITICAL: the SW must NOT serve the cached app shell for these — let them reach the
         // server, or the OAuth install/callback flow is intercepted and never authenticates.
