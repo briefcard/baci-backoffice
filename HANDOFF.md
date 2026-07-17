@@ -63,7 +63,11 @@ installed:true, ~279 products, reps connected.
   drafts (tags `b2b-app`, `rep:<name>`, `ready-to-ship`/`backorder`+`deposit-required`+
   `deposit-pct:<n>`, `card-on-file`; deposit $/customer tier stamped in customAttributes).
 - **Customer order form** — three doors, one component (`OrderFormView`, mode public/kiosk):
-  - **📋 Form (kiosk):** rep tablet locks into it; exit = rep password; offline-queues submissions.
+  - **📋 Form (kiosk):** now opens the **Form stage** (`FormStage` in App.jsx): the ALL-encompassing
+    lookbook + a rep curation bar (collection chips filter products+sections, same trim as
+    personalized links). Forks: **🔗 Share** (link via ShareFormSheet, recipient OPTIONAL — blank =
+    generic logo-over-hero lookbook) or **Present ▸** (locks the tablet into customer lookbook →
+    kiosk form; both gated by the rep-password ExitGate). Offline-queues submissions.
   - **QR `/?form=<code>`:** gated by `ORDER_FORM_CODE` (unset = disabled); strips volume/deposit config.
   - **Personalized link `/?form=<token>`** (NEW): a per-customer URL that opens a **Lookbook**
     first (see below), then the form filtered to their curated collections with their info
@@ -270,7 +274,9 @@ Transfers (API verified present), quote-terms legal review, Resend magic-link au
 
 ## 11. Recent commit history (newest first)
 
-`fe0b515` blank-form fix + image-centric lookbook/form (UNPUSHED) · `aab5b5d` personalized form
+`9c8dbea` Form stage: all-encompassing lookbook → curate → share/present (hero = logo over header
+image; generic links; ShareFormSheet customer-optional; smoke asserts hero variants) ·
+`fe0b515` blank-form fix + image-centric lookbook/form (pushed) · `aab5b5d` personalized form
 links + lookbook · `14e578b` inbound SKU live-match + re-match · `594a5b6` shipment doc-checklist
 UI · `337ad76` inbound documents + WhatsApp-agent API · `3dfcc36` health scopes diagnostics ·
 `598a0a6` handoff rewrite · `34655b0` quote thumbnails + Due-Today · `caeaaa6` editable pending
