@@ -75,12 +75,15 @@ installed:true, ~279 products, reps connected.
   - Totals are NEVER computed in customer mode. Over-stock qty flagged "+N on deposit". Product
     photos are tap-to-zoom (gallery lightbox). Submissions land in `pending_orders` (source
     kiosk/qr/link; link submissions credited to the creating rep).
-- **Lookbook is EDITORIAL** (`1d42907`): fashion-magazine redesign — sharp edges everywhere
-  (radius 0), large-format imagery (92vh hero, 80vh collection banners, 3:4 portrait product
-  images, 2px butt-jointed strips), Didot/Bodoni serif display (`--serif`; Apple system fonts,
-  serif fallback), uppercase letter-spaced eyebrows/labels, numbered spread eyebrows, wide
-  spacing, hero scrim instead of the flat blue wash (blue kept as no-image fallback + accents).
-  Purely presentational — shoppable flow untouched.
+- **Lookbook is EDITORIAL** (`1d42907` + `3825cba`): fashion-magazine redesign — sharp edges
+  everywhere (radius 0), large-format imagery (92vh hero, 80vh collection banners, 3:4 portrait
+  product images, 2px butt-jointed strips), uppercase letter-spaced eyebrows/labels, numbered
+  spread eyebrows, wide spacing, hero scrim instead of the flat blue wash (blue kept as no-image
+  fallback + accents). **Type = Inter, the brand font** — self-hosted woff2 in `web/public/fonts/`
+  (the exact 400/500/700+i4 files bacimilanousa.com serves; `--brand-sans`, app body + all display
+  set to Inter, preloaded, in the PWA precache). **Product card images `object-fit: contain`** on a
+  clean tile so nothing crops (lifestyle heroes/banners stay `cover`). Purely presentational —
+  shoppable flow untouched.
 - **Lookbook is SHOPPABLE** (`aef4666`): every card has per-variant qty inputs (price/MSRP + the
   form's oversell chips); bar swaps to "N units · M items — Review & submit" → shared ReviewSheet
   (now lives in Lookbook.jsx) → pending pool. qty state is owned by the PARENT (PublicOrderForm /
