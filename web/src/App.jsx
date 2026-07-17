@@ -6,7 +6,8 @@ import { BrowseView } from './components/BrowseView.jsx';
 import { productRank, money, unitWholesalePrice, splitByAvailability } from './domain.js';
 import { Cart } from './components/Cart.jsx';
 import { CheckoutView } from './components/CheckoutView.jsx';
-import { OrderFormView } from './components/OrderFormView.jsx';
+import { OrderFormView, ExitGate } from './components/OrderFormView.jsx';
+import { ShareFormSheet } from './components/CustomerPicker.jsx';
 import { PendingView } from './components/PendingView.jsx';
 import { InboundView } from './components/InboundView.jsx';
 import { PrintDoc, BlankFormDoc, OrderCopyDoc } from './components/PrintDocs.jsx';
@@ -236,14 +237,13 @@ function Shell({ me }) {
 
   if (!s.snapshot) return <div className="center muted">Syncing catalog…</div>;
 
-  // Kiosk form mode replaces the whole shell — nothing rep-facing is reachable until exit.
+  // Form stage replaces the whole shell: all-encompassing lookbook → curate → share/present.
   if (view === 'form') {
     return (
-      <OrderFormView
+      <FormStage
         snapshot={s.snapshot}
         config={s.config}
         availability={s.availability}
-        mode="kiosk"
         me={me}
         onExit={() => setView('browse')}
       />
@@ -448,6 +448,121 @@ function Shell({ me }) {
         <PrintDoc title="Order copy" onClose={() => setPrinting(null)}>
           <OrderCopyDoc order={printing.order} currency={s.config?.currency || 'USD'} leadTime={s.config?.leadTime} depositPctHint={s.config?.depositPct?.new_customer} />
         </PrintDoc>
+      )}
+    </div>
+  );
+}
+
+// The Form stage — the selling surface behind the 📋 Form button. Opens on the ALL-encompassing
+// lookbook (every catalogue collection), which the rep sculpts down with the curation chips.
+// From the same curated state it forks two ways:
+//   🔗 Share    → a form link carrying this curation (recipient optional; blank = generic
+//                 logo-over-hero lookbook), created via the existing ShareFormSheet.
+//   Present ▸  → locks THIS tablet into the customer-facing lookbook → order form (kiosk
+//                 mode); escaping either requires the rep password (ExitGate).
+function FormStage({ snapshot, config, availability, me, onExit }) {
+  const [excluded, setExcluded] = useState(() => new Set()); // collection handles hidden by the rep
+  const [stage, setStage] = useState('curate'); // curate | present | form
+  const [share, setShare] = useState(false);
+  const [lockAsk, setLockAsk] = useState(false);
+
+  const all = config?.formCollections || [];
+
+  // Same trim the server applies to personalized links: products filtered to the kept
+  // collections, section list to match. Untouched curation passes the full catalog through
+  // (including "Everything else" items that live outside the catalogue collections).
+  const filtered = useMemo(() => {
+    const sel = all.filter((c) => !excluded.has(c.handle));
+    if (sel.length === all.length) return { products: snapshot.products, config };
+    const set = new Set(sel.map((c) => c.handle));
+    return {
+      products: (snapshot.products || []).filter((p) => (p.collections || []).some((c) => set.has(c.handle))),
+      config: { ...config, formCollections: sel },
+    };
+  }, [snapshot, config, all, excluded]);
+
+  const toggle = (handle) =>
+    setExcluded((s) => {
+      const n = new Set(s);
+      if (n.has(handle)) n.delete(handle);
+      else n.add(handle);
+      return n;
+    });
+
+  if (stage === 'form') {
+    return (
+      <OrderFormView
+        snapshot={{ ...snapshot, products: filtered.products }}
+        config={filtered.config}
+        availability={availability}
+        mode="kiosk"
+        me={me}
+        onExit={onExit}
+      />
+    );
+  }
+
+  if (stage === 'present') {
+    return (
+      <>
+        <Lookbook catalog={filtered} onStart={() => setStage('form')} />
+        <button className="lb-lock" onClick={() => setLockAsk(true)} aria-label="Rep: exit presentation">
+          🔒
+        </button>
+        {lockAsk && (
+          <ExitGate
+            me={me}
+            onExit={() => {
+              setLockAsk(false);
+              setStage('curate');
+            }}
+            onCancel={() => setLockAsk(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+  // --- curate ---
+  const selCount = all.length - excluded.size;
+  return (
+    <div className="curate-wrap">
+      <div className="curate-bar">
+        <div className="curate-row">
+          <button className="hbtn" onClick={onExit} aria-label="Close form stage">
+            ✕
+          </button>
+          <strong>
+            Form · {selCount}/{all.length} collections
+          </strong>
+          <span className="curate-actions">
+            <button className="hbtn" onClick={() => setShare(true)}>
+              🔗 Share
+            </button>
+            <button className="hbtn curate-go" onClick={() => setStage('present')}>
+              Present ▸
+            </button>
+          </span>
+        </div>
+        <div className="chips curate-chips">
+          {all.map((c) => (
+            <button
+              key={c.handle}
+              className={excluded.has(c.handle) ? 'chip' : 'chip on'}
+              onClick={() => toggle(c.handle)}
+            >
+              {c.title}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Lookbook catalog={filtered} onStart={() => setStage('present')} cta="Present at kiosk ▸" />
+      {share && (
+        <ShareFormSheet
+          mainCollections={all}
+          initialSelected={excluded.size ? filtered.config.formCollections.map((c) => c.handle) : []}
+          onClose={() => setShare(false)}
+        />
       )}
     </div>
   );

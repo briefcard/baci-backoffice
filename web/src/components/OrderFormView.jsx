@@ -336,7 +336,8 @@ function ReviewSheet({ chosen, availability, currency, mode, code, onBack, onDon
 }
 
 // Kiosk lock: leaving form mode requires the signed-in rep's password (dev bypasses).
-function ExitGate({ me, onExit, onCancel }) {
+// Exported — the presented lookbook (Form stage) uses the same gate.
+export function ExitGate({ me, onExit, onCancel }) {
   const [pw, setPw] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);

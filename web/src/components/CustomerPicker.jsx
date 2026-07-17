@@ -279,13 +279,20 @@ export function CustomerPicker({ value, onChange, mainCollections = [] }) {
   );
 }
 
-// Share a personalized order-form link: lookbook + curated collections + prefilled info,
-// preselected from the customer's stored collections of interest. Submissions credit this rep.
-function ShareFormSheet({ customer, mainCollections = [], onClose }) {
-  const interested = new Set(customer.collectionsOfInterest || []);
+// Share a personalized order-form link: lookbook + curated collections + prefilled info.
+// Two doors in: from a picked customer in the cart (collections preselected from their stored
+// interests), or from the rep's Form stage with NO customer (initialSelected carries the curated
+// set; the link opens a generic lookbook — logo over the header image — unless the rep fills in
+// the optional recipient fields). Submissions credit this rep either way.
+export function ShareFormSheet({ customer = null, mainCollections = [], initialSelected, onClose }) {
+  const interested = new Set(customer?.collectionsOfInterest || []);
   const [selected, setSelected] = useState(
-    () => new Set(mainCollections.filter((c) => interested.has(c.title)).map((c) => c.handle))
+    () =>
+      new Set(
+        initialSelected || mainCollections.filter((c) => interested.has(c.title)).map((c) => c.handle)
+      )
   );
+  const [who, setWho] = useState({ company: '', contact: '', email: '', phone: '' });
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -305,7 +312,9 @@ function ShareFormSheet({ customer, mainCollections = [], onClose }) {
     setErr('');
     try {
       const res = await api.createFormLink({
-        customer: { id: customer.id, company: customer.name, email: customer.email, phone: customer.phone },
+        customer: customer
+          ? { id: customer.id, company: customer.name, email: customer.email, phone: customer.phone }
+          : who,
         collections: [...selected],
         note,
       });
@@ -331,15 +340,16 @@ function ShareFormSheet({ customer, mainCollections = [], onClose }) {
     <div className="cart-overlay" onClick={onClose}>
       <div className="cart exit-gate" onClick={(e) => e.stopPropagation()}>
         <div className="cart-head">
-          <strong>Share form · {customer.name || customer.email}</strong>
+          <strong>{customer ? `Share form · ${customer.name || customer.email}` : 'Share form link'}</strong>
           <button type="button" className="x" onClick={onClose}>✕</button>
         </div>
         <div className="cart-body">
           {!url ? (
             <>
               <div className="muted small">
-                Pick the collections for their lookbook + form (empty = full catalog). Their info
-                will be prefilled and orders from this link are credited to you.
+                {customer
+                  ? 'Pick the collections for their lookbook + form (empty = full catalog). Their info will be prefilled and orders from this link are credited to you.'
+                  : 'The link opens this lookbook + form (empty selection = full catalog). Orders from it are credited to you.'}
               </div>
               <div className="chips">
                 {mainCollections.map((c) => (
@@ -353,6 +363,18 @@ function ShareFormSheet({ customer, mainCollections = [], onClose }) {
                   </button>
                 ))}
               </div>
+              {!customer && (
+                <>
+                  <div className="muted small">
+                    Recipient (optional) — fill in to personalize the hero ("Curated for …") and
+                    prefill their info; leave blank for a general link.
+                  </div>
+                  <input placeholder="Store / company name" value={who.company} onChange={(e) => setWho({ ...who, company: e.target.value })} />
+                  <input placeholder="Contact name" value={who.contact} onChange={(e) => setWho({ ...who, contact: e.target.value })} />
+                  <input type="email" placeholder="Email" value={who.email} onChange={(e) => setWho({ ...who, email: e.target.value })} />
+                  <input placeholder="Phone" value={who.phone} onChange={(e) => setWho({ ...who, phone: e.target.value })} />
+                </>
+              )}
               <textarea placeholder="Personal note shown on their lookbook (optional)" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
               {err && <div className="err">{err}</div>}
               <button type="button" className="primary" disabled={busy} onClick={create}>

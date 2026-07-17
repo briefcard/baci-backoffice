@@ -470,9 +470,12 @@ main { padding-bottom: 96px; }
 .doc-add input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }
 .rematch-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
 
-/* ---- Personalized lookbook (public link landing) ---- */
+/* ---- Personalized lookbook (public link landing + rep Form stage) ---- */
 .lookbook { min-height: 100vh; background: #fff; padding-bottom: 90px; }
-.lb-hero { background: #2B1AFE; color: #fff; text-align: center; padding: 44px 20px 40px; }
+.lb-hero { background: #2B1AFE; color: #fff; text-align: center; padding: 44px 20px 40px; position: relative; overflow: hidden; }
+.lb-hero-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.lb-hero-tint { position: absolute; inset: 0; background: rgba(26, 13, 178, 0.55); }
+.lb-hero-in { position: relative; }
 .lb-hero .pf-logo { height: 40px; }
 .lb-hero h1 { margin: 16px 0 6px; font-size: 26px; }
 .lb-hero p { margin: 0; opacity: .85; font-size: 14px; }
@@ -502,6 +505,16 @@ main { padding-bottom: 96px; }
 .lb-card > img { cursor: zoom-in; }
 .lb-thumbs { display: flex; gap: 4px; padding: 6px 8px 0; }
 .lb-thumbs img { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; opacity: .55; cursor: pointer; border: 2px solid transparent; }
+
+/* ---- Form stage (rep-side): curation bar over the lookbook + kiosk-presentation lock ---- */
+.curate-bar { position: sticky; top: 0; z-index: 30; background: #fff; border-bottom: 1px solid var(--line); padding: 10px 12px; }
+.curate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.curate-row strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.curate-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.curate-go { background: #2B1AFE; color: #fff; border-color: #2B1AFE; }
+.curate-chips { margin-top: 8px; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
+.curate-chips .chip { flex-shrink: 0; }
+.lb-lock { position: fixed; top: 10px; right: 10px; z-index: 40; background: rgba(0, 0, 0, 0.35); color: #fff; border: 0; border-radius: 999px; width: 38px; height: 38px; font-size: 15px; cursor: pointer; }
 .lb-thumbs img.on { opacity: 1; border-color: #2B1AFE; }
 .fimg-tap { cursor: zoom-in; }
 .lightbox { position: fixed; inset: 0; z-index: 400; background: rgba(10,10,14,.92); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px; }

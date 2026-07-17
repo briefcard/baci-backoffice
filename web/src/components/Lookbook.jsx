@@ -59,10 +59,12 @@ function GalleryCard({ product, price, msrp, currency, onZoom }) {
   );
 }
 
-// The customer-facing lookbook a personalized form link opens with: the owner's curated
-// lifestyle heroes per collection (custom.collection_* metafields), a supporting image strip,
-// image-forward product grids at wholesale pricing, and a single CTA into the prefilled form.
-export function Lookbook({ catalog, onStart }) {
+// The customer-facing lookbook: the owner's curated lifestyle heroes per collection
+// (custom.collection_* metafields), a supporting image strip, image-forward product grids at
+// wholesale pricing, and a single CTA into the form. Opens from a personalized link OR from the
+// rep's Form stage (curate → share/present). With a customer attached the hero reads "Curated
+// for <company>"; without one it's just the logo over the header image.
+export function Lookbook({ catalog, onStart, cta = 'Start your order ▸' }) {
   const config = catalog?.config || {};
   const currency = config.currency || 'USD';
   const pct = config.discountPct ?? 50;
@@ -74,20 +76,25 @@ export function Lookbook({ catalog, onStart }) {
       products: (catalog?.products || []).filter((p) => (p.collections || []).some((x) => x.handle === c.handle)),
     }))
     .filter((s) => s.products.length > 0);
+  const heroImage = sections.find((s) => s.image)?.image || null;
 
   return (
     <div className="lookbook">
       <header className="lb-hero">
-        <img className="pf-logo" src={BRAND_LOGO} alt="Baci Milano" />
-        <h1>{link.company ? `Curated for ${link.company}` : 'Curated U.S. Selections'}</h1>
-        <p>
-          {sections.length} collection{sections.length !== 1 ? 's' : ''} selected for you · wholesale
-          pricing shown
-        </p>
-        {link.note && <p className="lb-note">“{link.note}”</p>}
-        <button className="lb-cta" onClick={onStart}>
-          Start your order ▸
-        </button>
+        {heroImage && <img className="lb-hero-bg" src={heroImage} alt="" />}
+        {heroImage && <div className="lb-hero-tint" />}
+        <div className="lb-hero-in">
+          <img className="pf-logo" src={BRAND_LOGO} alt="Baci Milano" />
+          {link.company && <h1>Curated for {link.company}</h1>}
+          <p>
+            {sections.length} collection{sections.length !== 1 ? 's' : ''}
+            {link.company ? ' selected for you' : ''} · wholesale pricing shown
+          </p>
+          {link.note && <p className="lb-note">“{link.note}”</p>}
+          <button className="lb-cta" onClick={onStart}>
+            {cta}
+          </button>
+        </div>
       </header>
 
       {sections.map((s) => (
@@ -123,7 +130,7 @@ export function Lookbook({ catalog, onStart }) {
 
       <button className="cartbar lb-bar" onClick={onStart}>
         <span>{link.company || 'Ready when you are'}</span>
-        <span>Start your order ▸</span>
+        <span>{cta}</span>
       </button>
 
       {zoom && <ImageLightbox images={zoom.images} title={zoom.title} onClose={() => setZoom(null)} />}
