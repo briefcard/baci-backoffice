@@ -43,6 +43,30 @@ if (personalized && !(/Curated for/.test(personalized) && /Smoke Test Co/.test(p
   console.log('LOOKBOOK personalized FAIL: hero missing "Curated for <company>"');
 }
 
+// Shoppable lookbook: qty inputs render on cards, and a non-empty shared qty state swaps the
+// bottom bar to "Review & submit".
+const firstVariantId = catalog.products[0]?.variants[0]?.id;
+const shoppable = check('LOOKBOOK shoppable', () =>
+  React.createElement(Lookbook, {
+    catalog,
+    onStart: () => {},
+    availability,
+    qty: { [firstVariantId]: 2 },
+    onQty: () => {},
+    mode: 'public',
+    code: 'x',
+    onReset: () => {},
+  })
+);
+if (shoppable && !/lb-qty/.test(shoppable)) {
+  failed = true;
+  console.log('LOOKBOOK shoppable FAIL: no qty inputs rendered');
+}
+if (shoppable && !/Review/.test(shoppable)) {
+  failed = true;
+  console.log('LOOKBOOK shoppable FAIL: review bar missing with items in the order');
+}
+
 check('FORM', () =>
   React.createElement(OrderFormView, {
     snapshot: catalog,

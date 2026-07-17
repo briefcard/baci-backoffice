@@ -55,6 +55,7 @@ function PublicOrderForm({ initialCode }) {
   const [catalog, setCatalog] = useState(null);
   const [state, setState] = useState('loading'); // loading | ready | badcode | error
   const [stage, setStage] = useState('auto'); // personalized links open on the lookbook first
+  const [qty, setQty] = useState({}); // SHARED lookbook↔form order (variantId -> quantity)
 
   useEffect(() => {
     let dead = false;
@@ -99,10 +100,24 @@ function PublicOrderForm({ initialCode }) {
   const availability = {};
   for (const p of catalog.products || []) for (const v of p.variants) availability[v.id] = v.available ?? 0;
 
-  // Personalized links open on the lookbook (curated collections, big imagery), then flow into
-  // the order form with the customer's info prefilled. Plain event codes go straight to the form.
+  // Personalized links open on the lookbook (curated collections, big imagery) — now SHOPPABLE:
+  // customers order directly on it, or tap through to the form (the qty state is shared, so
+  // nothing is lost switching). Plain event codes go straight to the form.
   if (catalog.link && stage !== 'form') {
-    return <Lookbook catalog={catalog} onStart={() => setStage('form')} />;
+    return (
+      <Lookbook
+        catalog={catalog}
+        onStart={() => setStage('form')}
+        cta="Browse the full order form ▸"
+        availability={availability}
+        qty={qty}
+        onQty={setQty}
+        mode="public"
+        code={code}
+        prefill={catalog.link}
+        onReset={() => setQty({})}
+      />
+    );
   }
 
   return (
@@ -113,6 +128,8 @@ function PublicOrderForm({ initialCode }) {
       mode="public"
       code={code}
       prefill={catalog.link || null}
+      qty={qty}
+      onQty={setQty}
     />
   );
 }
@@ -465,6 +482,7 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
   const [stage, setStage] = useState('curate'); // curate | present | form
   const [share, setShare] = useState(false);
   const [lockAsk, setLockAsk] = useState(false);
+  const [qty, setQty] = useState({}); // SHARED lookbook↔form order (variantId -> quantity)
 
   const all = config?.formCollections || [];
 
@@ -498,6 +516,8 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
         mode="kiosk"
         me={me}
         onExit={onExit}
+        qty={qty}
+        onQty={setQty}
       />
     );
   }
@@ -505,7 +525,16 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
   if (stage === 'present') {
     return (
       <>
-        <Lookbook catalog={filtered} onStart={() => setStage('form')} />
+        <Lookbook
+          catalog={filtered}
+          onStart={() => setStage('form')}
+          cta="Browse the full order form ▸"
+          availability={availability}
+          qty={qty}
+          onQty={setQty}
+          mode="kiosk"
+          onReset={() => setQty({})}
+        />
         <button className="lb-lock" onClick={() => setLockAsk(true)} aria-label="Rep: exit presentation">
           🔒
         </button>
@@ -556,7 +585,16 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
           ))}
         </div>
       </div>
-      <Lookbook catalog={filtered} onStart={() => setStage('present')} cta="Present at kiosk ▸" />
+      <Lookbook
+        catalog={filtered}
+        onStart={() => setStage('present')}
+        cta="Present at kiosk ▸"
+        availability={availability}
+        qty={qty}
+        onQty={setQty}
+        mode="kiosk"
+        onReset={() => setQty({})}
+      />
       {share && (
         <ShareFormSheet
           mainCollections={all}

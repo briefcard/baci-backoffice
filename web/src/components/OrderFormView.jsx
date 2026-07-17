@@ -1,8 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { unitWholesalePrice, money } from '../domain.js';
-import { buildFormSections, submitOrQueue } from '../formSections.js';
+import { buildFormSections } from '../formSections.js';
 import { api } from '../api.js';
-import { ImageLightbox } from './Lookbook.jsx';
+import { ImageLightbox, ReviewSheet } from './Lookbook.jsx';
 
 // The digitized paper order form. Customers browse collection sections (same order as the
 // printed catalogue), punch in quantities, and submit — WITHOUT ever seeing a total: unit
@@ -10,10 +10,16 @@ import { ImageLightbox } from './Lookbook.jsx';
 //
 // mode 'kiosk'  — a rep's booth tablet, locked; exit requires the rep's password.
 // mode 'public' — a customer's own phone via QR (?form=<code>); no rep UI at all.
-export function OrderFormView({ snapshot, config, availability, mode, me, code, onExit, prefill }) {
+//
+// qty can be CONTROLLED by the parent (pass qty + onQty) so the lookbook and the form share one
+// order — quantities entered on either surface survive switching between them.
+export function OrderFormView({ snapshot, config, availability, mode, me, code, onExit, prefill, qty: qtyProp, onQty }) {
   const currency = config?.currency || 'USD';
   const pct = config?.discountPct ?? 50;
-  const [qty, setQty] = useState({}); // variantId -> quantity
+  const [qtyLocal, setQtyLocal] = useState({}); // variantId -> quantity (uncontrolled fallback)
+  const controlled = typeof onQty === 'function';
+  const qty = controlled ? qtyProp || {} : qtyLocal;
+  const setQty = controlled ? onQty : setQtyLocal;
   const [query, setQuery] = useState('');
   const [review, setReview] = useState(false);
   const [doneState, setDoneState] = useState(null); // null | 'sent' | 'queued'
@@ -236,104 +242,7 @@ function FormRow({ product, availability, pct, currency, qty, setQ, lead }) {
   );
 }
 
-function ReviewSheet({ chosen, availability, currency, mode, code, onBack, onDone, setQ, prefill }) {
-  const [company, setCompany] = useState(prefill?.company || '');
-  const [contact, setContact] = useState(prefill?.contact || '');
-  const [email, setEmail] = useState(prefill?.email || '');
-  const [phone, setPhone] = useState(prefill?.phone || '');
-  const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-
-  const submit = async () => {
-    if (!company.trim() && !contact.trim()) {
-      setErr('Please add your store or contact name.');
-      return;
-    }
-    setErr('');
-    setBusy(true);
-    try {
-      const payload = {
-        lines: chosen.map((c) => ({
-          variantId: c.variant.id,
-          quantity: c.qty,
-          sku: c.variant.sku,
-          title: c.product.title,
-        })),
-        customer: { company, contact, email, phone },
-        notes,
-      };
-      const { queued } = await submitOrQueue({ kind: mode === 'public' ? 'qr' : 'kiosk', code, payload });
-      onDone(queued ? 'queued' : 'sent');
-    } catch (e) {
-      setErr(e?.message || 'Could not submit — please try again.');
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="cart-overlay" onClick={onBack}>
-      <div className="cart" onClick={(e) => e.stopPropagation()}>
-        <div className="cart-head">
-          <strong>Your order</strong>
-          <button className="x" onClick={onBack}>
-            ✕
-          </button>
-        </div>
-        <div className="cart-body">
-          {chosen.map((c) => {
-            const avail = Math.max(0, availability?.[c.variant.id] ?? c.variant.available ?? 0);
-            const now = Math.min(avail, c.qty);
-            const dep = c.qty - now;
-            return (
-              <div className="citem" key={c.variant.id}>
-                {c.product.image ? <img src={c.product.image} alt="" /> : <div className="ph" />}
-                <div className="cinfo">
-                  <div className="ct">{c.product.title}</div>
-                  <div className="cs">
-                    {c.variant.sku} · qty {c.qty}
-                    {dep > 0 && (
-                      <span className="cs-dep">
-                        {now > 0 ? ` — ${now} now · ${dep} on deposit` : ' — on deposit (ships when available)'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <button className="link" onClick={() => setQ(c.variant.id, 0)}>
-                  Remove
-                </button>
-              </div>
-            );
-          })}
-
-          {chosen.some((c) => c.qty > Math.max(0, availability?.[c.variant.id] ?? c.variant.available ?? 0)) && (
-            <div className="dep-note">
-              Quantities beyond what's on hand are <strong>secured with a deposit</strong> and ship
-              as soon as stock arrives — so nothing gets oversold. Your rep will go over the details.
-            </div>
-          )}
-
-          <div className="muted small form-note">
-            A Baci Milano rep will go over totals, availability, and any volume pricing with you.
-          </div>
-
-          <div className="cfields">
-            <input placeholder="Store / company name" value={company} onChange={(e) => setCompany(e.target.value)} />
-            <input placeholder="Your name" value={contact} onChange={(e) => setContact(e.target.value)} />
-            <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            <input placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
-            <textarea placeholder="Anything we should know?" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
-          </div>
-
-          {err && <div className="err">{err}</div>}
-          <button className="primary" disabled={busy || chosen.length === 0} onClick={submit}>
-            {busy ? 'Submitting…' : 'Submit order form'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// ReviewSheet moved to Lookbook.jsx (shared by the shoppable lookbook + this form).
 
 // Kiosk lock: leaving form mode requires the signed-in rep's password (dev bypasses).
 // Exported — the presented lookbook (Form stage) uses the same gate.
