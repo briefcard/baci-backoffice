@@ -8,6 +8,9 @@
   --low: #b8860b;
   --out: #b00020;
   --accent: #2B1AFE; /* bacimilanousa.com theme color */
+  /* Editorial display serif for the lookbook — Didone faces ship on the Apple devices this runs
+     on (kiosk iPads, customer iPhones); graceful serif fallback elsewhere. */
+  --serif: 'Didot', 'Bodoni 72', 'Bodoni MT', 'Playfair Display', 'Times New Roman', Georgia, serif;
 }
 
 * { box-sizing: border-box; }
@@ -470,49 +473,85 @@ main { padding-bottom: 96px; }
 .doc-add input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }
 .rematch-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
 
-/* ---- Personalized lookbook (public link landing + rep Form stage) ---- */
-.lookbook { min-height: 100vh; background: #fff; padding-bottom: 90px; }
-.lb-hero { background: #2B1AFE; color: #fff; text-align: center; padding: 44px 20px 40px; position: relative; overflow: hidden; }
+/* ---- Editorial lookbook (fashion-magazine aesthetic) — sharp edges, big format, wide spacing.
+   Public link landing + rep Form stage. ---- */
+.lookbook { min-height: 100vh; background: #fff; color: var(--ink); padding-bottom: 96px; }
+
+/* Full-bleed hero: large image, content bottom-aligned into a soft scrim (brand blue fallback
+   when a collection has no lifestyle image). */
+.lb-hero {
+  position: relative; overflow: hidden; min-height: 92vh;
+  display: flex; align-items: flex-end; justify-content: center; text-align: center;
+  color: #fff; background: var(--accent); padding: 0 24px clamp(40px, 8vh, 72px);
+}
 .lb-hero-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.lb-hero-tint { position: absolute; inset: 0; background: rgba(26, 13, 178, 0.55); }
-.lb-hero-in { position: relative; }
-.lb-hero .pf-logo { height: 40px; }
-.lb-hero h1 { margin: 16px 0 6px; font-size: 26px; }
-.lb-hero p { margin: 0; opacity: .85; font-size: 14px; }
-.lb-note { font-style: italic; margin-top: 10px !important; }
-.lb-cta { margin-top: 20px; background: #fff; color: #2B1AFE; border: 0; border-radius: 999px; padding: 14px 26px; font-size: 16px; font-weight: 800; cursor: pointer; }
-.lb-section { max-width: 720px; margin: 0 auto; padding: 26px 14px 6px; }
-.lb-banner { position: relative; border-radius: 14px; overflow: hidden; margin-bottom: 12px; }
-.lb-banner img { width: 100%; height: 240px; object-fit: cover; display: block; }
-.lb-banner h2 { position: absolute; left: 16px; bottom: 10px; color: #fff; margin: 0; font-size: 24px; text-shadow: 0 1px 8px rgba(0,0,0,.55); }
-.lb-banner:not(:has(img)) { background: #2B1AFE; padding: 26px 16px; }
-.lb-banner:not(:has(img)) h2 { position: static; text-shadow: none; }
-.lb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.lb-card { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.lb-card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
-.lb-ph { width: 100%; aspect-ratio: 1; background: #f0f0f2; }
-.lb-card figcaption { padding: 8px 10px; display: grid; gap: 2px; }
-.lb-title { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
-.lb-price { font-size: 13px; font-weight: 800; }
-.lb-price small { font-weight: 500; color: var(--muted); }
-.lb-bar { position: fixed; }
-.share-url { background: #f0f0f2; border-radius: 10px; padding: 12px; font-family: ui-monospace, monospace; font-size: 13px; word-break: break-all; }
+.lb-hero-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(12,12,20,.28) 0%, rgba(12,12,20,0) 34%, rgba(12,12,20,.30) 66%, rgba(12,12,20,.62) 100%); }
+.lb-hero-in { position: relative; max-width: 780px; }
+.lb-hero .pf-logo { height: clamp(38px, 6vw, 54px); margin: 0 auto; }
 
-/* Image-centric lookbook additions */
-.lb-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-.lb-strip img { width: 100%; height: 130px; object-fit: cover; border-radius: 12px; display: block; }
-.lb-strip img:only-child { grid-column: 1 / -1; height: 150px; }
-.lb-card > img { cursor: zoom-in; }
-.lb-thumbs { display: flex; gap: 4px; padding: 6px 8px 0; }
-.lb-thumbs img { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; opacity: .55; cursor: pointer; border: 2px solid transparent; }
+/* Shared editorial primitives */
+.lb-eyebrow { display: block; text-transform: uppercase; letter-spacing: .34em; font-size: 11px; font-weight: 700; margin-bottom: 20px; opacity: .9; }
+.lb-display { font-family: var(--serif); font-weight: 500; line-height: 1.03; letter-spacing: .005em; }
 
-/* Shoppable lookbook: per-variant qty inputs on the cards */
-.lb-vars { display: grid; gap: 6px; padding: 0 10px 10px; }
-.lb-var { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.lb-var-label { font-size: 12px; color: var(--muted); min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.lb-var-label .lb-var-price { font-weight: 700; color: var(--ink); }
-.lb-var .flater { font-style: normal; }
-.lb-qty { width: 64px; flex-shrink: 0; padding: 8px 6px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; text-align: center; }
+.lb-hero h1.lb-display { font-size: clamp(36px, 7.5vw, 62px); margin: 24px 0 8px; }
+.lb-hero-sub { margin: 16px 0 0; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; opacity: .92; }
+.lb-note { font-family: var(--serif); font-style: italic; font-size: clamp(17px, 2.4vw, 21px); margin: 20px 0 0; opacity: .95; }
+.lb-cta {
+  margin-top: 30px; display: inline-block; cursor: pointer;
+  background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.85); border-radius: 0;
+  padding: 16px 36px; font-size: 12px; letter-spacing: .24em; text-transform: uppercase; font-weight: 700;
+  transition: background .16s ease, color .16s ease;
+}
+.lb-cta:hover { background: #fff; color: var(--ink); }
+
+/* Collection spreads: big banner image + generous rhythm between sections */
+.lb-section { margin-top: clamp(64px, 11vw, 132px); }
+.lb-banner { position: relative; overflow: hidden; margin: 0; }
+.lb-banner img { width: 100%; height: clamp(440px, 80vh, 860px); object-fit: cover; display: block; }
+.lb-banner-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: clamp(24px, 5vw, 60px); color: #fff; background: linear-gradient(180deg, transparent, rgba(12,12,20,.52)); }
+.lb-banner-cap .lb-eyebrow { margin-bottom: 12px; opacity: .95; }
+.lb-banner h2.lb-display { font-size: clamp(32px, 6.5vw, 60px); margin: 0; }
+.lb-banner:not(:has(img)) { background: var(--accent); }
+.lb-banner:not(:has(img)) .lb-banner-cap { position: static; background: none; }
+
+/* Butt-jointed supporting image strip (magazine spread) */
+.lb-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-top: 2px; }
+.lb-strip img { width: 100%; height: clamp(190px, 34vh, 360px); object-fit: cover; display: block; }
+.lb-strip img:only-child { grid-column: 1 / -1; }
+
+/* Product grid — images breathe on white, no card chrome */
+.lb-grid {
+  max-width: 1200px; margin: 0 auto;
+  padding: clamp(30px, 4.5vw, 56px) clamp(14px, 3vw, 34px) 0;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: clamp(22px, 3.2vw, 48px) clamp(16px, 2.4vw, 34px);
+}
+@media (min-width: 700px) { .lb-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1040px) { .lb-grid { grid-template-columns: repeat(4, 1fr); } }
+
+.lb-card { margin: 0; background: none; border: 0; border-radius: 0; overflow: visible; }
+.lb-card > img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; background: #f4f4f5; cursor: zoom-in; }
+.lb-ph { width: 100%; aspect-ratio: 3 / 4; background: #f0f0f2; }
+.lb-card figcaption { padding: 15px 2px 0; display: grid; gap: 6px; }
+.lb-title { font-size: 12px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; line-height: 1.4; }
+.lb-price { font-family: var(--serif); font-size: 17px; font-weight: 500; }
+.lb-price small { font-family: inherit; font-weight: 500; font-size: 11px; letter-spacing: .05em; color: var(--muted); text-transform: uppercase; }
+
+.lb-thumbs { display: flex; gap: 6px; padding: 8px 2px 0; }
+.lb-thumbs img { width: 42px; height: 42px; object-fit: cover; border-radius: 0; opacity: .5; cursor: pointer; border: 1px solid transparent; }
+
+/* Fixed submit/CTA bar — squared and letter-spaced to match */
+.lb-bar { position: fixed; border-radius: 0; max-width: none; text-transform: uppercase; letter-spacing: .12em; font-size: 13px; font-weight: 700; }
+
+.share-url { background: #f4f4f5; border: 1px solid var(--line); border-radius: 0; padding: 12px; font-family: ui-monospace, monospace; font-size: 13px; word-break: break-all; }
+
+/* Shoppable lookbook: per-variant qty inputs on the cards (sharp, editorial) */
+.lb-vars { display: grid; gap: 9px; padding: 13px 2px 0; }
+.lb-var { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.lb-var-label { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lb-var-label .lb-var-price { font-weight: 700; color: var(--ink); letter-spacing: 0; }
+.lb-var .flater { font-style: normal; border-radius: 0; }
+.lb-qty { width: 62px; flex-shrink: 0; padding: 10px 6px; border: 1px solid var(--line); border-radius: 0; font-size: 15px; text-align: center; background: #fff; }
+.lb-qty:focus { outline: none; border-color: var(--ink); }
 
 /* ---- Form stage (rep-side): curation bar over the lookbook + kiosk-presentation lock ---- */
 .curate-bar { position: sticky; top: 0; z-index: 30; background: #fff; border-bottom: 1px solid var(--line); padding: 10px 12px; }
@@ -522,8 +561,8 @@ main { padding-bottom: 96px; }
 .curate-go { background: #2B1AFE; color: #fff; border-color: #2B1AFE; }
 .curate-chips { margin-top: 8px; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
 .curate-chips .chip { flex-shrink: 0; }
-.lb-lock { position: fixed; top: 10px; right: 10px; z-index: 40; background: rgba(0, 0, 0, 0.35); color: #fff; border: 0; border-radius: 999px; width: 38px; height: 38px; font-size: 15px; cursor: pointer; }
-.lb-thumbs img.on { opacity: 1; border-color: #2B1AFE; }
+.lb-lock { position: fixed; top: 14px; right: 14px; z-index: 40; background: rgba(0, 0, 0, 0.4); color: #fff; border: 0; border-radius: 0; width: 40px; height: 40px; font-size: 15px; cursor: pointer; }
+.lb-thumbs img.on { opacity: 1; border-color: var(--ink); }
 .fimg-tap { cursor: zoom-in; }
 .lightbox { position: fixed; inset: 0; z-index: 400; background: rgba(10,10,14,.92); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px; }
 .lightbox-main { max-width: 94vw; max-height: 70vh; object-fit: contain; border-radius: 10px; background: #fff; }

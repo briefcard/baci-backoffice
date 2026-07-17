@@ -144,13 +144,14 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
     <div className="lookbook">
       <header className="lb-hero">
         {heroImage && <img className="lb-hero-bg" src={heroImage} alt="" />}
-        {heroImage && <div className="lb-hero-tint" />}
+        <div className="lb-hero-scrim" />
         <div className="lb-hero-in">
+          <span className="lb-eyebrow">{link.company ? 'Private Selection' : 'The Lookbook'}</span>
           <img className="pf-logo" src={BRAND_LOGO} alt="Baci Milano" />
-          {link.company && <h1>Curated for {link.company}</h1>}
-          <p>
+          {link.company && <h1 className="lb-display">Curated for {link.company}</h1>}
+          <p className="lb-hero-sub">
             {sections.length} collection{sections.length !== 1 ? 's' : ''}
-            {link.company ? ' selected for you' : ''} · wholesale pricing shown
+            {link.company ? ' selected for you' : ''} · wholesale pricing
           </p>
           {link.note && <p className="lb-note">“{link.note}”</p>}
           <button className="lb-cta" onClick={onStart}>
@@ -159,11 +160,16 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
         </div>
       </header>
 
-      {sections.map((s) => (
+      {sections.map((s, i) => (
         <section className="lb-section" key={s.handle}>
           <div className="lb-banner">
             {s.image ? <img src={s.image} alt="" loading="lazy" /> : null}
-            <h2>{s.title}</h2>
+            <div className="lb-banner-cap">
+              <span className="lb-eyebrow">
+                {String(i + 1).padStart(2, '0')} — {sections.length === 1 ? 'The Collection' : 'Collection'}
+              </span>
+              <h2 className="lb-display">{s.title}</h2>
+            </div>
           </div>
           {s.images?.length > 0 && (
             <div className="lb-strip">
