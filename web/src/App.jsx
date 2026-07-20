@@ -298,6 +298,9 @@ function Shell({ me }) {
       });
     }
     if (skipped > 0) window.alert(`${skipped} submitted item(s) are no longer in the catalog and were skipped.`);
+    // Land the review on the Browse tab (not the Pending list) so closing the drawer reveals the
+    // catalog + cart bar — the rep can add products to the pending order, then reopen the review.
+    setView('browse');
     const c = p.customer || {};
     const hasCustomer = c.company || c.contact || c.email || c.phone;
     setReviewing({

@@ -399,6 +399,8 @@ main { padding-bottom: 96px; }
 .fmsrp { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .discard-link { margin: 2px auto 0; display: block; opacity: .65; font-size: 13px; }
 .secondary { width: 100%; padding: 14px 16px; border: 1.5px solid var(--ink); border-radius: 12px; font-size: 16px; background: #fff; color: var(--ink); font-weight: 700; cursor: pointer; }
+.add-products { width: 100%; padding: 12px 16px; border: 1.5px dashed var(--line); border-radius: 12px; font-size: 15px; background: #fff; color: var(--ink); font-weight: 700; cursor: pointer; }
+.add-products:active { background: #f6f6f7; }
 
 /* ---- Printable documents (blank order form + client order copy) ----
    Rendered as a live PREVIEW overlay (portal on <body>); the same markup prints, so what you

@@ -150,6 +150,12 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
           </button>
         </div>
         <div className="cart-body">
+          {/* Close the drawer back to the catalog to add more products; the cart bar reopens this
+              same review (customer + pendingId preserved). The main lever for editing a pending
+              order form beyond the items the customer originally submitted. */}
+          <button className="add-products" onClick={onClose}>
+            ＋ Add products{pendingId ? ' to this order' : ''}
+          </button>
           {items.length === 0 && <div className="muted center">No items yet.</div>}
 
           {ready.length > 0 && (
