@@ -95,8 +95,11 @@ installed:true, ~279 products, reps connected.
   wholesale/MSRP with an inline thumbnail gallery; tap any image → fullscreen `ImageLightbox`.
   "Start your order ▸" → the filtered form.
 - **Pending** (all reps): the client-RFQ→quote workflow. Review seeds the normal cart with the
-  client attached; **editable including ADDING items** (closing the drawer does NOT end the review
-  — browse, add, cart-bar reopens it; explicit "Discard review" link); **"🖨 Quote PDF for
+  client attached; **editable including ADDING items** — opening a pending now switches to the
+  Browse tab (`openPending` → `setView('browse')`, `8c58629`) so closing the drawer reveals the
+  catalog + cart bar, and the review drawer has an explicit **"＋ Add products to this order"**
+  button; browse/add → cart bar reopens the SAME review (customer + pendingId preserved); explicit
+  "Discard review" link; **"🖨 Quote PDF for
   customer" pre-confirm**; Confirm → `/api/pending/:id/confirm` → same createOrders pipeline;
   audited (409 on double-handle, failed confirm stays pending).
 - **Checkout** (captain(s), `CAPTAIN_EMAILS`; empty = everyone): live queue of the app's draft
