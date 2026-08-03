@@ -1,6 +1,25 @@
+// Surface the SERVER's error text, not just the status code. Routes reply `{ error: "..." }`,
+// and for orders that string is Shopify's own userError (bad phone, insufficient inventory,
+// invalid province…). Swallowing it left reps staring at "/api/orders → 400" with no way to tell
+// what to fix, so the real reason now reaches the screen.
+async function failure(url, r) {
+  let detail = '';
+  try {
+    const body = await r.clone().json();
+    detail = body?.error || body?.message || '';
+  } catch {
+    try {
+      detail = (await r.text()).slice(0, 300);
+    } catch {
+      /* nothing readable in the body */
+    }
+  }
+  return new Error(detail ? `${detail} (${r.status})` : `${url} → ${r.status}`);
+}
+
 async function jget(url) {
   const r = await fetch(url, { credentials: 'include' });
-  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  if (!r.ok) throw await failure(url, r);
   return r.json();
 }
 async function jpost(url, body) {
@@ -10,7 +29,7 @@ async function jpost(url, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {}),
   });
-  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  if (!r.ok) throw await failure(url, r);
   return r.json();
 }
 
