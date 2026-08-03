@@ -1,0 +1,257 @@
+{%- comment -%}
+  Baci Milano USA — Draft order invoice notification.
+  Paste into: Shopify admin → Settings → Notifications → Customer notifications →
+  "Draft order invoice" → Edit code (replace the whole body).
+
+  Matches the app's printed order copy (web/src/components/PrintDocs.jsx OrderCopyDoc):
+  blue band + white logo, PREPARED FOR block, line thumbnails, MSRP/Unit/Total,
+  ready-vs-backorder framing, DUE TODAY + deposit breakdown, notes, T&C, footer.
+
+  Notification templates expose draft-order properties UNPREFIXED ({{ name }}, not
+  {{ order.name }}). Everything below degrades gracefully if a field is absent.
+
+  The app splits a cart into up to TWO drafts, so each invoice covers one of them.
+  Which one is read off the tags the app stamps:
+    ready-to-ship | backorder + deposit-required + deposit-pct:<n>
+  and the deposit figures come from the custom attributes the app writes.
+{%- endcomment -%}
+
+{%- assign is_backorder = false -%}
+{%- if tags contains 'backorder' -%}{%- assign is_backorder = true -%}{%- endif -%}
+{%- assign lead_time = '6–10 weeks' -%}
+{%- assign deposit_required = attributes["Deposit required"] -%}
+{%- assign balance_due = attributes["Balance due at fulfillment"] -%}
+{%- assign customer_tier = attributes["Customer tier"] -%}
+{%- assign sales_rep = attributes["Sales rep"] -%}
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ shop.name }} — Order {{ name }}</title>
+  </head>
+  <body style="margin:0; padding:0; background:#f4f4f5;">
+    <!-- Preheader: shows in the inbox preview, hidden in the body -->
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+      {% if is_backorder %}Your backorder {{ name }} — deposit due to secure your pieces.{% else %}Your wholesale order {{ name }} is ready for payment.{% endif %}
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f5;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:100%; background:#ffffff;">
+
+            <!-- Blue band + white logo -->
+            <tr>
+              <td align="center" style="background:#2B1AFE; padding:28px 24px;">
+                <img src="https://bacimilanousa.com/cdn/shop/files/Baci_Logo_-_White.png?height=108"
+                     alt="Baci Milano" height="36"
+                     style="display:block; border:0; height:36px; width:auto;" />
+                <div style="margin-top:14px; color:#ffffff; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:11px; letter-spacing:.28em; text-transform:uppercase; font-weight:600;">
+                  {% if is_backorder %}Backorder Invoice{% else %}Wholesale Invoice{% endif %}
+                </div>
+              </td>
+            </tr>
+
+            <!-- Meta + PREPARED FOR -->
+            <tr>
+              <td style="padding:26px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#141414;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td valign="top" style="font-size:13px; color:#6b6b70; line-height:1.6;">
+                      {{ created_at | date: "%B %d, %Y" }}<br />
+                      Order ref: <strong style="color:#141414;">{{ name }}</strong>
+                      {% if is_backorder %}(backorder){% else %}(ready to ship){% endif %}
+                      {% if sales_rep %}<br />Sales rep: {{ sales_rep }}{% endif %}
+                    </td>
+                    <td valign="top" align="right" style="font-size:13px; line-height:1.6;">
+                      <div style="font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:#6b6b70; font-weight:700; margin-bottom:4px;">Prepared for</div>
+                      {% if billing_address.company %}{{ billing_address.company }}<br />{% endif %}
+                      {% if billing_address.name %}{{ billing_address.name }}<br />{% endif %}
+                      {% if email %}{{ email }}<br />{% endif %}
+                      {% if billing_address.phone %}{{ billing_address.phone }}{% endif %}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            {% if custom_message %}
+            <tr>
+              <td style="padding:20px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px; line-height:1.6; color:#141414;">
+                {{ custom_message }}
+              </td>
+            </tr>
+            {% endif %}
+
+            <!-- Section head -->
+            <tr>
+              <td style="padding:26px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="border-bottom:2px solid #141414; padding-bottom:8px; font-size:15px; font-weight:700;">
+                  {% if is_backorder %}Backorder — ships in approx. {{ lead_time }}{% else %}Ready to ship{% endif %}
+                </div>
+              </td>
+            </tr>
+
+            <!-- Line items: thumbnail, title/SKU, MSRP, unit, total -->
+            <tr>
+              <td style="padding:0 24px; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;">
+                  {% for line in line_items %}
+                  <tr>
+                    <td width="56" valign="top" style="padding:14px 10px 14px 0;">
+                      {% if line.image %}
+                        <img src="{{ line | img_url: 'compact' }}" alt="" width="52" height="52"
+                             style="display:block; border:0; width:52px; height:52px; background:#f4f4f5;" />
+                      {% endif %}
+                    </td>
+                    <td valign="top" style="padding:14px 8px 14px 0; line-height:1.5;">
+                      <div style="font-weight:600; color:#141414;">{{ line.title }}</div>
+                      <div style="color:#6b6b70; font-size:12px;">
+                        {% if line.sku %}{{ line.sku }}{% elsif line.variant.sku %}{{ line.variant.sku }}{% endif %}
+                        &nbsp;·&nbsp; Qty {{ line.quantity }}
+                      </div>
+                    </td>
+                    <td valign="top" align="right" style="padding:14px 0; white-space:nowrap; line-height:1.5;">
+                      {% if line.original_price and line.original_price > line.price %}
+                        <div style="color:#6b6b70; font-size:11px; text-transform:uppercase; letter-spacing:.04em;">
+                          MSRP {{ line.original_price | money }}
+                        </div>
+                      {% endif %}
+                      <div style="color:#6b6b70; font-size:12px;">{{ line.price | money }} ea</div>
+                      <div style="font-weight:700; color:#141414;">{{ line.line_price | money }}</div>
+                    </td>
+                  </tr>
+                  <tr><td colspan="3" style="border-bottom:1px solid #e6e6e8; font-size:0; line-height:0;">&nbsp;</td></tr>
+                  {% endfor %}
+                </table>
+              </td>
+            </tr>
+
+            <!-- Totals -->
+            <tr>
+              <td style="padding:18px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;">
+                  <tr>
+                    <td style="padding:4px 0; color:#6b6b70;">Subtotal</td>
+                    <td align="right" style="padding:4px 0; font-weight:600;">{{ subtotal_price | money }}</td>
+                  </tr>
+                  {% if shipping_price and shipping_price > 0 %}
+                  <tr>
+                    <td style="padding:4px 0; color:#6b6b70;">Shipping</td>
+                    <td align="right" style="padding:4px 0;">{{ shipping_price | money }}</td>
+                  </tr>
+                  {% endif %}
+                  {% if tax_price and tax_price > 0 %}
+                  <tr>
+                    <td style="padding:4px 0; color:#6b6b70;">Tax</td>
+                    <td align="right" style="padding:4px 0;">{{ tax_price | money }}</td>
+                  </tr>
+                  {% endif %}
+                  <tr>
+                    <td style="padding:10px 0 0; border-top:1px solid #e6e6e8; font-weight:700; font-size:15px;">Total</td>
+                    <td align="right" style="padding:10px 0 0; border-top:1px solid #e6e6e8; font-weight:700; font-size:15px;">{{ total_price | money }}</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            {% if is_backorder and deposit_required %}
+            <!-- Deposit breakdown (backorder drafts only) -->
+            <tr>
+              <td style="padding:18px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f2f1ff; font-size:14px;">
+                  <tr>
+                    <td style="padding:14px 16px 4px; color:#2B1AFE; font-weight:800; letter-spacing:.06em; font-size:12px; text-transform:uppercase;">Due today</td>
+                    <td align="right" style="padding:14px 16px 4px; color:#2B1AFE; font-weight:800; font-size:16px;">{{ deposit_required }}</td>
+                  </tr>
+                  <tr>
+                    <td colspan="2" style="padding:0 16px 6px; color:#6b6b70; font-size:12px; line-height:1.6;">
+                      Deposit securing your backordered pieces{% if customer_tier %} · {{ customer_tier }}{% endif %}.
+                    </td>
+                  </tr>
+                  {% if balance_due %}
+                  <tr>
+                    <td style="padding:0 16px 14px; color:#141414; font-size:13px;">Due before shipment (balance)</td>
+                    <td align="right" style="padding:0 16px 14px; color:#141414; font-size:13px; font-weight:700;">{{ balance_due }}</td>
+                  </tr>
+                  {% endif %}
+                </table>
+              </td>
+            </tr>
+            {% endif %}
+
+            <!-- Pay button -->
+            <tr>
+              <td align="center" style="padding:26px 24px 0;">
+                <a href="{{ invoice_url }}"
+                   style="display:inline-block; background:#2B1AFE; color:#ffffff; text-decoration:none;
+                          font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+                          font-size:13px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+                          padding:16px 40px;">
+                  {% if is_backorder %}Pay deposit{% else %}Pay invoice{% endif %}
+                </a>
+                <div style="margin-top:10px; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:11px; color:#6b6b70;">
+                  Secure checkout powered by Shopify
+                </div>
+              </td>
+            </tr>
+
+            <!-- Ship to -->
+            {% if shipping_address %}
+            <tr>
+              <td style="padding:26px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:#6b6b70; font-weight:700; margin-bottom:6px;">Ship to</div>
+                <div style="font-size:13px; line-height:1.6; color:#141414;">
+                  {{ shipping_address.name }}<br />
+                  {% if shipping_address.company %}{{ shipping_address.company }}<br />{% endif %}
+                  {{ shipping_address.address1 }}<br />
+                  {% if shipping_address.address2 != blank %}{{ shipping_address.address2 }}<br />{% endif %}
+                  {{ shipping_address.city }}{% if shipping_address.province_code %}, {{ shipping_address.province_code }}{% endif %} {{ shipping_address.zip }}<br />
+                  {{ shipping_address.country }}
+                </div>
+              </td>
+            </tr>
+            {% endif %}
+
+            {% if note != blank %}
+            <tr>
+              <td style="padding:22px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:#6b6b70; font-weight:700; margin-bottom:6px;">Notes</div>
+                <div style="font-size:13px; line-height:1.6; color:#141414; white-space:pre-line;">{{ note }}</div>
+              </td>
+            </tr>
+            {% endif %}
+
+            <!-- Terms & conditions (mirrors quoteTerms() in the app) -->
+            <tr>
+              <td style="padding:24px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:#6b6b70; font-weight:700; margin-bottom:8px;">Terms &amp; conditions</div>
+                <ul style="margin:0; padding-left:18px; font-size:11px; line-height:1.75; color:#6b6b70;">
+                  <li>Prices are wholesale, quoted in U.S. dollars, and EXCLUDE freight/shipping, insurance, duties, and any applicable state or local taxes unless expressly stated on this document.</li>
+                  <li>All items are subject to prior sale and to availability at time of order confirmation.</li>
+                  <li>In-stock (&ldquo;ready to ship&rdquo;) items typically ship within 3&ndash;5 business days of cleared payment.</li>
+                  <li>Backordered items typically ship in {{ lead_time }} from order confirmation; any ship/arrival dates shown are good-faith estimates and may change.</li>
+                  <li>Backorder deposits are applied to the balance due at fulfillment; the remaining balance is due before the backordered goods ship.</li>
+                </ul>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="padding:24px; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="border-top:1px solid #e6e6e8; padding-top:16px; font-size:11px; line-height:1.7; color:#6b6b70; text-align:center;">
+                  Questions or changes — your Baci Milano sales rep<br />
+                  305.600.0099 · <a href="mailto:GS@BaciMilanoUSA.com" style="color:#2B1AFE; text-decoration:none;">GS@BaciMilanoUSA.com</a><br />
+                  Baci Milano USA, LLC · 1835 E Hallandale Beach Blvd STE 834, Hallandale Beach, FL 33009
+                </div>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
