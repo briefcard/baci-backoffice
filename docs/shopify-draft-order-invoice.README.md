@@ -8,25 +8,31 @@ File to paste: **`shopify-draft-order-invoice.liquid`**
 ## Install
 
 1. Shopify admin → **Settings → Notifications → Customer notifications → Draft order invoice → Edit code**
-2. **Select all and COPY the existing code first.** You need it in step 4.
-3. Replace everything with `shopify-draft-order-invoice.liquid`.
-4. Paste what you copied in step 2 into the block near the bottom marked
-   `RETAIL / NON-APP DRAFTS`.
-   ⚠️ **If you leave that block empty, retail draft invoices send a blank email.**
-5. Save, then send yourself two test invoices — one from an app-created draft, one from a
+2. Replace everything with `shopify-draft-order-invoice.liquid`.
+3. Save, then send yourself two test invoices — one from an app-created draft and one from a
    hand-built retail draft — and confirm each renders the right way.
 
-(Shopify's editor has a *Revert to default* button if you ever need the stock code back.)
+The file is **self-contained**: it carries both a wholesale and a B2C/retail version, so there is
+nothing to paste in by hand. (Shopify's editor has a *Revert to default* button if you ever need
+the stock code back.)
+
+## The two versions
+
+| Draft | Renders |
+|---|---|
+| Created by the rep app (tagged `b2b-app`) | **Wholesale quote** — MSRP vs wholesale columns, quote-valid-through date, ready/backorder framing, deposit breakdown, rep attribution, wholesale T&C |
+| Anything else (retail drafts built by hand) | **B2C order** — price only, shipping + tax, consumer greeting, links to the store policy pages |
+
+Both share the brand shell (blue band, white logo, Inter, Shopify secure checkout).
+
+⚠️ **History:** the retail branch originally shipped as an empty placeholder, which meant every
+non-`b2b-app` draft sent a **blank email**. Don't reintroduce that — if you edit the `{% else %}`
+branch, keep a real template in it.
 
 ## How it's scoped
 
 Shopify has **one** draft-order-invoice template for the whole store, so the file guards on the
-`b2b-app` tag that the rep app stamps on every draft it creates (`server/src/orders.js`):
-
-| Draft | Renders |
-|---|---|
-| Created by the rep app (tagged `b2b-app`) | Branded wholesale quote |
-| Anything else (hand-built retail drafts, etc.) | Your original template, untouched |
+`b2b-app` tag that the rep app stamps on every draft it creates (`server/src/orders.js`).
 
 ## Liquid gotchas (learned the hard way)
 
