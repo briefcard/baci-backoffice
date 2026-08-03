@@ -226,11 +226,169 @@
   </body>
 </html>
 {% else %}
-<!-- ===================================================================== -->
-<!-- RETAIL / NON-APP DRAFTS - PASTE YOUR ORIGINAL TEMPLATE BELOW THIS LINE -->
-<!-- Any draft NOT created by the rep app renders here. Paste the code you  -->
-<!-- copied from the original "Draft order invoice" template here, exactly  -->
-<!-- as it was. If you leave this empty, retail invoices send BLANK emails. -->
-<!-- ===================================================================== -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ shop.name }} — Order {{ name }}</title>
+  </head>
+  <body style="margin:0; padding:0; background:#f4f4f5;">
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+      Your order {{ name }} from {{ shop.name }} is ready to complete.
+    </div>
 
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f5;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:100%; background:#ffffff;">
+
+            <tr>
+              <td align="center" style="background:#2B1AFE; padding:28px 24px;">
+                <img src="https://bacimilanousa.com/cdn/shop/files/Baci_Logo_-_White.png?height=108"
+                     alt="Baci Milano" height="36"
+                     style="display:block; border:0; height:36px; width:auto;" />
+                <div style="margin-top:14px; color:#ffffff; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:11px; letter-spacing:.2em; text-transform:uppercase; font-weight:600; line-height:1.5;">
+                  Complete Your Order
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:26px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#141414;">
+                <div style="font-size:15px; line-height:1.6;">
+                  {% if billing_address.first_name %}Hi {{ billing_address.first_name }},{% else %}Hello,{% endif %}
+                </div>
+                <div style="margin-top:8px; font-size:14px; line-height:1.6; color:#6b6b70;">
+                  Here's your order <strong style="color:#141414;">{{ name }}</strong>, created {{ created_at | date: "%B %-d, %Y" }}.
+                  Use the button below to check out securely.
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:20px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px; line-height:1.6; color:#141414;">
+                {{ custom_message }}
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:22px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="border-bottom:2px solid #141414; padding-bottom:8px; font-size:15px; font-weight:700;">
+                  Your order
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 24px; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;">
+                  {% for line in line_items %}
+                  <tr>
+                    <td width="56" valign="top" style="padding:14px 10px 14px 0;">
+                      {% if line.image %}
+                        <img src="{{ line | image_url: width: 120 }}" alt="" width="52" height="52"
+                             style="display:block; border:0; width:52px; height:52px; background:#f4f4f5;" />
+                      {% endif %}
+                    </td>
+                    <td valign="top" style="padding:14px 8px 14px 0; line-height:1.5;">
+                      <div style="font-weight:600; color:#141414;">{{ line.title }}</div>
+                      <div style="color:#6b6b70; font-size:12px;">Qty {{ line.quantity }}</div>
+                    </td>
+                    <td valign="top" align="right" style="padding:14px 0; white-space:nowrap; line-height:1.5;">
+                      <div style="font-weight:700; color:#141414;">{{ line.line_price | money }}</div>
+                    </td>
+                  </tr>
+                  <tr><td colspan="3" style="border-bottom:1px solid #e6e6e8; font-size:0; line-height:0;">&nbsp;</td></tr>
+                  {% endfor %}
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:18px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;">
+                  <tr>
+                    <td style="padding:4px 0; color:#6b6b70;">Subtotal</td>
+                    <td align="right" style="padding:4px 0; font-weight:600;">{{ subtotal_price | money }}</td>
+                  </tr>
+                  {% if shipping_price > 0 %}
+                  <tr>
+                    <td style="padding:4px 0; color:#6b6b70;">Shipping</td>
+                    <td align="right" style="padding:4px 0;">{{ shipping_price | money }}</td>
+                  </tr>
+                  {% endif %}
+                  {% if tax_price > 0 %}
+                  <tr>
+                    <td style="padding:4px 0; color:#6b6b70;">Tax</td>
+                    <td align="right" style="padding:4px 0;">{{ tax_price | money }}</td>
+                  </tr>
+                  {% endif %}
+                  <tr>
+                    <td style="padding:10px 0 0; border-top:1px solid #e6e6e8; font-weight:700; font-size:15px;">Total</td>
+                    <td align="right" style="padding:10px 0 0; border-top:1px solid #e6e6e8; font-weight:700; font-size:15px;">{{ total_price | money }}</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:26px 24px 0;">
+                <a href="{{ invoice_url }}"
+                   style="display:inline-block; background:#2B1AFE; color:#ffffff; text-decoration:none;
+                          font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+                          font-size:13px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+                          padding:16px 40px;">
+                  Complete your purchase
+                </a>
+                <div style="margin-top:10px; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:11px; color:#6b6b70;">
+                  Secure checkout powered by Shopify
+                </div>
+              </td>
+            </tr>
+
+            {% if shipping_address %}
+            <tr>
+              <td style="padding:26px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:#6b6b70; font-weight:700; margin-bottom:6px;">Ship to</div>
+                <div style="font-size:13px; line-height:1.6; color:#141414;">
+                  {{ shipping_address.name }}<br />
+                  {% if shipping_address.company %}{{ shipping_address.company }}<br />{% endif %}
+                  {{ shipping_address.address1 }}<br />
+                  {% if shipping_address.address2 != blank %}{{ shipping_address.address2 }}<br />{% endif %}
+                  {{ shipping_address.city }}{% if shipping_address.province_code %}, {{ shipping_address.province_code }}{% endif %} {{ shipping_address.zip }}<br />
+                  {{ shipping_address.country }}
+                </div>
+              </td>
+            </tr>
+            {% endif %}
+
+            {% if note != blank %}
+            <tr>
+              <td style="padding:22px 24px 0; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:#6b6b70; font-weight:700; margin-bottom:6px;">Notes</div>
+                <div style="font-size:13px; line-height:1.6; color:#141414; white-space:pre-line;">{{ note }}</div>
+              </td>
+            </tr>
+            {% endif %}
+
+            <tr>
+              <td style="padding:24px; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <div style="border-top:1px solid #e6e6e8; padding-top:16px; font-size:11px; line-height:1.8; color:#6b6b70; text-align:center;">
+                  <a href="https://bacimilanousa.com/policies/shipping-policy" style="color:#2B1AFE; text-decoration:none;">Shipping</a> ·
+                  <a href="https://bacimilanousa.com/policies/refund-policy" style="color:#2B1AFE; text-decoration:none;">Returns</a> ·
+                  <a href="https://bacimilanousa.com/policies/terms-of-service" style="color:#2B1AFE; text-decoration:none;">Terms</a> ·
+                  <a href="https://bacimilanousa.com/policies/privacy-policy" style="color:#2B1AFE; text-decoration:none;">Privacy</a><br /><br />
+                  Questions? <a href="mailto:GS@BaciMilanoUSA.com" style="color:#2B1AFE; text-decoration:none;">GS@BaciMilanoUSA.com</a> · 305.600.0099<br />
+                  Baci Milano USA, LLC · 1835 E Hallandale Beach Blvd STE 834, Hallandale Beach, FL 33009
+                </div>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
 {% endif %}
