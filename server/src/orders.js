@@ -126,6 +126,11 @@ export async function createOrders(rep, body = {}) {
 
   const repName = rep?.name || rep?.email || 'unknown';
   const baseTags = ['b2b-app', `rep:${repName}`];
+  // The rep confirmed there's no ship-to (booth floor: never block the sale). Flag the draft so
+  // the office can filter `tag:needs-address` in Shopify and chase it before invoicing/shipping.
+  // Online-only customers are exempt — no physical store is expected.
+  const missingAddress = !shipAddress && !customer.onlineOnly;
+  if (missingAddress) baseTags.push('needs-address');
   // Card-on-file is collected at POS (captain saves the card via the reader) — the app only flags
   // it on the draft so the captain knows to do it at checkout. No card data ever touches the app.
   if (cardOnFile) baseTags.push('card-on-file');
@@ -135,6 +140,7 @@ export async function createOrders(rep, body = {}) {
   ];
   if (customer.name) baseAttrs.push({ key: 'Customer', value: String(customer.name) });
   if (customer.phone) baseAttrs.push({ key: 'Phone', value: String(customer.phone) });
+  if (missingAddress) baseAttrs.push({ key: 'Needs address', value: 'Rep confirmed no ship-to at order time — collect before invoicing/shipping' });
   if (cardOnFile) baseAttrs.push({ key: 'Card on file', value: 'Save card at register (POS)' });
 
   const result = { ready: null, backorder: null };

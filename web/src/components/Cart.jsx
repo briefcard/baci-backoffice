@@ -31,6 +31,15 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
   const [doneCtx, setDoneCtx] = useState(null); // snapshot of the order for the printable copy
   const [showPrint, setShowPrint] = useState(false);
   const [showQuote, setShowQuote] = useState(false); // pre-confirm quote PDF (client adjustments)
+  const [askNoAddress, setAskNoAddress] = useState(false); // ship-to confirmation gate
+
+  // Ship-to check. A missing address doesn't BLOCK the order (a rep on a booth floor has to be
+  // able to take it), but the rep has to knowingly confirm it — otherwise the office discovers it
+  // later and has to chase the customer before they can invoice, ship, or quote freight.
+  // Online-only customers are exempt: no physical store is the whole point.
+  const addressExempt = !!customer?.onlineOnly;
+  const hasShipTo = !!(customer?.address?.address1 && customer?.address?.city);
+  const needsAddressConfirm = !addressExempt && !hasShipTo;
 
   const applied = Math.min(Math.max(Number(disc) || 0, 0), cap);
   const readyTotal = readySubtotal * (1 - applied / 100);
@@ -51,7 +60,15 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
         // Send the structured address too — the server puts it on the draft's shipping/billing so
         // the office never re-types it (falls back to the customer's saved Shopify default).
         customer: customer
-          ? { id: customer.id || undefined, name: customer.name, email: customer.email, phone: customer.phone, address: customer.address }
+          ? {
+              id: customer.id || undefined,
+              name: customer.name,
+              email: customer.email,
+              phone: customer.phone,
+              address: customer.address,
+              // Lets the server skip the needs-address flag for customers with no physical store.
+              onlineOnly: !!customer.onlineOnly,
+            }
           : {},
         notes,
         repDiscountPct: applied,
@@ -235,8 +252,18 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
                 <textarea placeholder="Notes for this order" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
               </div>
 
+              {needsAddressConfirm && (
+                <div className="addr-warn">
+                  No shipping address on file — the office will need it before this can be invoiced or shipped.
+                </div>
+              )}
+
               {err && <div className="err">{err}</div>}
-              <button className="primary" disabled={busy} onClick={submit}>
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={() => (needsAddressConfirm ? setAskNoAddress(true) : submit())}
+              >
                 {busy ? 'Creating…' : `Create order${backorder.length ? 's' : ''} · ${money(grandTotal, currency)}`}
               </button>
               {/* Client-quote round-trips: export the branded quote BEFORE confirming, so the
@@ -252,6 +279,44 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
             </>
           )}
         </div>
+        {/* Ship-to gate: acknowledge, don't block. "Add address" just returns the rep to the
+            cart, where the customer's Edit button opens the profile form with the address fields. */}
+        {askNoAddress && (
+          <div className="cart-overlay" onClick={() => setAskNoAddress(false)}>
+            <div className="cart exit-gate" onClick={(e) => e.stopPropagation()}>
+              <div className="cart-head">
+                <strong>No shipping address</strong>
+                <button className="x" onClick={() => setAskNoAddress(false)}>
+                  ✕
+                </button>
+              </div>
+              <div className="cart-body">
+                <div className="muted small">
+                  {customer
+                    ? `${customer.name || customer.email} has no shipping address saved.`
+                    : 'No customer is attached to this order, so there’s no shipping address.'}{' '}
+                  The order will be created, but the office can’t invoice, estimate freight, or ship
+                  until someone collects it — and it’ll be flagged <strong>needs-address</strong> in
+                  Shopify.
+                </div>
+                <button className="primary" onClick={() => setAskNoAddress(false)}>
+                  ‹ Add the address
+                </button>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setAskNoAddress(false);
+                    submit();
+                  }}
+                >
+                  Create without an address
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showQuote && (
           <PrintDoc title="Customer quote" onClose={() => setShowQuote(false)}>
             <OrderCopyDoc
