@@ -3,6 +3,18 @@
   Paste into: Shopify admin → Settings → Notifications → Customer notifications →
   "Draft order invoice" → Edit code (replace the whole body).
 
+  ⚠ SCOPED BY TAG — READ THIS FIRST.
+  Shopify has ONE draft-order-invoice template for the whole store, so this file guards on the
+  `b2b-app` tag that the rep app stamps on every draft it creates (server/src/orders.js).
+    • Draft created by the app  (tagged b2b-app) → the branded wholesale quote below.
+    • Any other draft (retail drafts you build by hand in Shopify admin, etc.)
+                                → falls through to YOUR EXISTING TEMPLATE, untouched.
+
+  SO BEFORE YOU PASTE: open the current "Draft order invoice" template, select ALL of it, and
+  copy it. Then paste this file in its place and drop what you copied into the marked
+  "RETAIL / NON-APP DRAFTS" block near the bottom. That block is what retail quotes keep using.
+  (Shopify's editor also has "Revert to default" if you ever need the stock code back.)
+
   Matches the app's printed order copy (web/src/components/PrintDocs.jsx OrderCopyDoc):
   blue band + white logo, PREPARED FOR block, line thumbnails, MSRP/Unit/Total,
   ready-vs-backorder framing, DUE TODAY + deposit breakdown, notes, T&C, footer.
@@ -16,9 +28,17 @@
   and the deposit figures come from the custom attributes the app writes.
 {%- endcomment -%}
 
+{%- comment -%} Only app-created wholesale drafts get the branded quote. {%- endcomment -%}
+{%- if tags contains 'b2b-app' -%}
+
 {%- assign is_backorder = false -%}
 {%- if tags contains 'backorder' -%}{%- assign is_backorder = true -%}{%- endif -%}
 {%- assign lead_time = '6–10 weeks' -%}
+{%- comment -%}
+  Quote validity: 7 days from when the draft was created. The unix-seconds round trip
+  (date:"%s" → plus → date) is the standard Liquid way to do date math; 604800 = 7 days.
+{%- endcomment -%}
+{%- assign valid_through = created_at | date: "%s" | plus: 604800 | date: "%B %-d, %Y" -%}
 {%- assign deposit_required = attributes["Deposit required"] -%}
 {%- assign balance_due = attributes["Balance due at fulfillment"] -%}
 {%- assign customer_tier = attributes["Customer tier"] -%}
@@ -34,7 +54,7 @@
   <body style="margin:0; padding:0; background:#f4f4f5;">
     <!-- Preheader: shows in the inbox preview, hidden in the body -->
     <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
-      {% if is_backorder %}Your backorder {{ name }} — deposit due to secure your pieces.{% else %}Your wholesale order {{ name }} is ready for payment.{% endif %}
+      Your quoted order {{ name }} — valid through {{ valid_through }}.{% if is_backorder %} Deposit due to secure your backordered pieces.{% endif %}
     </div>
 
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f5;">
@@ -48,8 +68,8 @@
                 <img src="https://bacimilanousa.com/cdn/shop/files/Baci_Logo_-_White.png?height=108"
                      alt="Baci Milano" height="36"
                      style="display:block; border:0; height:36px; width:auto;" />
-                <div style="margin-top:14px; color:#ffffff; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:11px; letter-spacing:.28em; text-transform:uppercase; font-weight:600;">
-                  {% if is_backorder %}Backorder Invoice{% else %}Wholesale Invoice{% endif %}
+                <div style="margin-top:14px; color:#ffffff; font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:11px; letter-spacing:.2em; text-transform:uppercase; font-weight:600; line-height:1.5;">
+                  Quoted Order — Valid Through {{ valid_through }}
                 </div>
               </td>
             </tr>
@@ -237,7 +257,7 @@
                 <div style="font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:#6b6b70; font-weight:700; margin-bottom:8px;">Terms &amp; conditions</div>
                 <ul style="margin:0; padding-left:18px; font-size:11px; line-height:1.75; color:#6b6b70;">
                   <li>Prices are wholesale, quoted in U.S. dollars, and EXCLUDE freight/shipping, insurance, duties, and any applicable state or local taxes unless expressly stated on this document.</li>
-                  <li>All items are subject to prior sale and to availability at time of order confirmation.</li>
+                  <li>This quoted order is valid through {{ valid_through }}. All items are subject to prior sale and to availability at time of order confirmation.</li>
                   <li>In-stock (&ldquo;ready to ship&rdquo;) items typically ship within 3&ndash;5 business days of cleared payment.</li>
                   <li>Backordered items typically ship in {{ lead_time }} from order confirmation; any ship/arrival dates shown are good-faith estimates and may change.</li>
                   <li>Backorder deposits are applied to the balance due at fulfillment; the remaining balance is due before the backordered goods ship.</li>
@@ -262,3 +282,20 @@
     </table>
   </body>
 </html>
+
+{%- else -%}
+{%- comment -%}
+  ============================================================================
+  RETAIL / NON-APP DRAFTS  —  PASTE YOUR EXISTING TEMPLATE BETWEEN THESE LINES
+  ============================================================================
+  Any draft order NOT created by the rep app (no `b2b-app` tag) renders here —
+  e.g. retail-priced drafts you build by hand in Shopify admin. Paste the code
+  you copied from the current "Draft order invoice" template here, exactly as
+  it was, so those quotes keep going out unchanged.
+
+  Leaving this block empty would send a BLANK email for retail drafts, so don't
+  install this template until you've pasted your existing code in.
+  ============================================================================
+{%- endcomment -%}
+
+{%- endif -%}
