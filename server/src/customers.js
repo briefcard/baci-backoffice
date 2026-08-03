@@ -78,6 +78,34 @@ export function isRepeatCustomer(tags) {
   return Array.isArray(tags) && tags.some((t) => /b2b/i.test(String(t)));
 }
 
+// Map a fetched customer's defaultAddress node → a MailingAddressInput for a draft order's
+// shipping/billing. Uses Shopify's already-normalized codes, so it's safe to send verbatim.
+function defaultAddressToInput(a) {
+  if (!a || !a.address1 || !a.city) return null;
+  const out = { address1: a.address1, city: a.city };
+  if (a.address2) out.address2 = a.address2;
+  if (a.zip) out.zip = a.zip;
+  if (a.provinceCode) out.provinceCode = a.provinceCode;
+  if (a.countryCodeV2) out.countryCode = a.countryCodeV2;
+  return out;
+}
+
+// Map the client's address shape ({address1,address2,city,province,zip,country}) → a
+// MailingAddressInput. Fallback ship-to when a Shopify default address isn't available yet.
+// provinceCode wants a code (FL), not a name — drop anything longer so a bad value can't fail
+// the whole draft (Shopify can still infer the region from zip + country).
+export function clientAddressToInput(a) {
+  if (!a || !a.address1 || !a.city) return null;
+  const out = { address1: String(a.address1).trim(), city: String(a.city).trim() };
+  if (a.address2) out.address2 = String(a.address2).trim();
+  if (a.zip) out.zip = String(a.zip).trim();
+  const prov = String(a.province || '').trim();
+  if (prov && prov.length <= 3) out.provinceCode = prov.toUpperCase();
+  const country = String(a.country || '').trim();
+  if (country) out.countryCode = country.toUpperCase();
+  return out;
+}
+
 export async function searchCustomers(q) {
   const data = await shopifyGraphQL(SEARCH_CUSTOMERS, { q });
   return (data.customers?.nodes || []).map(toClientShape);
@@ -187,23 +215,29 @@ export async function upsertCustomer(profile = {}) {
 }
 
 // Resolve a cart's `customer` field to a real Shopify customer for the draft order,
-// server-authoritative. Returns { customerId, isRepeat } — isRepeat drives the deposit tier.
+// server-authoritative. Returns { customerId, isRepeat, address } — isRepeat drives the deposit
+// tier; address is the customer's default ship-to (MailingAddressInput) so the draft carries it.
 export async function resolveCustomer(customer) {
-  if (!customer) return { customerId: null, isRepeat: false };
+  if (!customer) return { customerId: null, isRepeat: false, address: null };
   if (customer.id) {
     try {
       const data = await shopifyGraphQL(GET_CUSTOMER_BY_ID, { id: customer.id });
-      if (data.customer) return { customerId: data.customer.id, isRepeat: isRepeatCustomer(data.customer.tags) };
+      if (data.customer)
+        return {
+          customerId: data.customer.id,
+          isRepeat: isRepeatCustomer(data.customer.tags),
+          address: defaultAddressToInput(data.customer.defaultAddress),
+        };
     } catch {
       /* fall through to email path */
     }
   }
-  if (!customer.email) return { customerId: null, isRepeat: false };
+  if (!customer.email) return { customerId: null, isRepeat: false, address: null };
   try {
     const rec = await findByEmail(customer.email);
-    if (rec) return { customerId: rec.id, isRepeat: isRepeatCustomer(rec.tags) };
+    if (rec) return { customerId: rec.id, isRepeat: isRepeatCustomer(rec.tags), address: defaultAddressToInput(rec.defaultAddress) };
   } catch {
     /* ignore */
   }
-  return { customerId: null, isRepeat: false };
+  return { customerId: null, isRepeat: false, address: null };
 }

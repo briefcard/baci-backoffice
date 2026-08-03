@@ -9,7 +9,7 @@
 import { shopifyGraphQL } from './shopify.js';
 import { cache } from './snapshot.js';
 import { round2, maxAdditionalPct } from './domain.js';
-import { resolveCustomer } from './customers.js';
+import { resolveCustomer, clientAddressToInput } from './customers.js';
 import { cfg } from './config.js';
 
 const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
@@ -68,12 +68,22 @@ function priceLines(entries, discountPct) {
   return { lineItems, subtotal: round2(subtotal) };
 }
 
-async function submitDraftOrder({ lineItems, tags, customAttributes, note, customerId, customer, volumeDiscountPct, reserveUntil }) {
+async function submitDraftOrder({ lineItems, tags, customAttributes, note, customerId, customer, volumeDiscountPct, reserveUntil, shippingAddress }) {
   const input = { lineItems, note: note || '', tags, customAttributes };
   if (reserveUntil) input.reserveInventoryUntil = reserveUntil;
   if (customer?.phone) input.phone = String(customer.phone).trim();
   if (customerId) input.purchasingEntity = { customerId };
   else if (customer?.email) input.email = String(customer.email).trim();
+  // Carry the ship-to onto the draft so the office can invoice / take payment / estimate shipping
+  // WITHOUT re-typing the address. Shopify does NOT auto-copy the customer's address to a draft,
+  // so we set it explicitly; if we have no address but do have a customer, let Shopify pull their
+  // saved default. Billing mirrors shipping (B2B: same address unless the office changes it).
+  if (shippingAddress) {
+    input.shippingAddress = shippingAddress;
+    input.billingAddress = shippingAddress;
+  } else if (customerId) {
+    input.useCustomerDefaultAddress = true;
+  }
   if (volumeDiscountPct > 0) {
     input.appliedDiscount = { valueType: 'PERCENTAGE', value: round2(volumeDiscountPct), title: `Volume ${volumeDiscountPct}%` };
   }
@@ -100,8 +110,11 @@ export async function createOrders(rep, body = {}) {
   const totalSubtotal = round2(readySubtotal + backSubtotal);
 
   // Resolve the customer once (shared across both draft orders); tags come back fresh from
-  // Shopify, never from the client, so the deposit tier can't be spoofed by the rep.
-  const { customerId, isRepeat } = await resolveCustomer(customer.id || customer.email ? customer : null);
+  // Shopify, never from the client, so the deposit tier can't be spoofed by the rep. Also pull
+  // the customer's default ship-to so the draft carries it (Shopify-normalized codes; safe to send).
+  const { customerId, isRepeat, address: defaultAddress } = await resolveCustomer(customer.id || customer.email ? customer : null);
+  // Prefer the Shopify-normalized default; fall back to the address the rep just entered on the cart.
+  const shipAddress = defaultAddress || clientAddressToInput(customer.address);
   const tiers = cache.config?.depositPct || { new_customer: 40, repeat_customer: 30 };
   const depositPct = isRepeat ? Number(tiers.repeat_customer) : Number(tiers.new_customer);
 
@@ -140,6 +153,7 @@ export async function createOrders(rep, body = {}) {
       customer,
       volumeDiscountPct: applied,
       reserveUntil,
+      shippingAddress: shipAddress,
     });
   }
 
@@ -166,6 +180,7 @@ export async function createOrders(rep, body = {}) {
       customerId,
       customer,
       volumeDiscountPct: applied,
+      shippingAddress: shipAddress,
     });
     result.backorder.depositPct = depositPct;
     result.backorder.depositAmount = depositAmount;

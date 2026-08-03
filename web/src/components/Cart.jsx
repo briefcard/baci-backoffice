@@ -48,7 +48,11 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
     try {
       const payload = {
         lines: items.map((i) => ({ variantId: i.variantId, quantity: i.qty })),
-        customer: customer ? { id: customer.id || undefined, name: customer.name, email: customer.email, phone: customer.phone } : {},
+        // Send the structured address too — the server puts it on the draft's shipping/billing so
+        // the office never re-types it (falls back to the customer's saved Shopify default).
+        customer: customer
+          ? { id: customer.id || undefined, name: customer.name, email: customer.email, phone: customer.phone, address: customer.address }
+          : {},
         notes,
         repDiscountPct: applied,
         cardOnFile,
