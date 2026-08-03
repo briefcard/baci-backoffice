@@ -101,8 +101,15 @@
                   {% for line in line_items %}
                   <tr>
                     <td width="56" valign="top" style="padding:14px 10px 14px 0;">
+                      {%- comment -%}
+                        image_url is the CURRENT filter (img_url is deprecated); it applies
+                        directly to a line_item and REQUIRES a width or height. 120px = 2x the
+                        52px display box, so it stays crisp on retina.
+                        If thumbnails ever come through blank on a test send, the legacy form
+                        {{ line | img_url: 'compact' }} is the fallback.
+                      {%- endcomment -%}
                       {% if line.image %}
-                        <img src="{{ line | img_url: 'compact' }}" alt="" width="52" height="52"
+                        <img src="{{ line | image_url: width: 120 }}" alt="" width="52" height="52"
                              style="display:block; border:0; width:52px; height:52px; background:#f4f4f5;" />
                       {% endif %}
                     </td>
