@@ -392,7 +392,7 @@ export function OrderCopyDoc({ order, currency = 'USD', leadTime = '6–10 weeks
 // boilerplate — OWNER SHOULD REVIEW the exact wording with legal/ops before relying on it.
 const quoteTerms = (leadTime) => [
   'Prices are wholesale, quoted in U.S. dollars, and EXCLUDE freight/shipping, insurance, duties, and any applicable state or local taxes unless expressly stated on this document.',
-  'This quote is valid for 14 days from the date above. All items are subject to prior sale and to availability at time of order confirmation.',
+  'This quote is valid for 7 days from the date above. All items are subject to prior sale and to availability at time of order confirmation.',
   'In-stock ("ready to ship") items typically ship within 3–5 business days of cleared payment.',
   `Backordered items typically ship in ${leadTime} from order confirmation; any ship/arrival dates shown are good-faith estimates and may change.`,
   'Backorder deposits are applied to the balance due at fulfillment; the remaining balance is due before the backordered goods ship.',
