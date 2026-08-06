@@ -1,8 +1,28 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { unitWholesalePrice, money } from '../domain.js';
 import { submitOrQueue } from '../formSections.js';
 
 const BRAND_LOGO = 'https://bacimilanousa.com/cdn/shop/files/Baci_Logo_-_White.png?height=108';
+
+// Brand film behind the hero (Shopify CDN — H.264 720p, ~3MB, faststart, no audio track).
+// The poster paints instantly so the hero is never blank; the video fades in over it once it can
+// actually play. Reps work on venue Wi-Fi, so this is deliberately small and skippable.
+const HERO_VIDEO = 'https://cdn.shopify.com/s/files/1/0769/1993/1192/files/baci-lookbook-hero.mp4?v=1786055850';
+const HERO_POSTER = 'https://cdn.shopify.com/s/files/1/0769/1993/1192/files/baci-lookbook-hero-poster.jpg?v=1786055849';
+
+// Don't pull 3MB of video on a metered/slow connection or when the viewer prefers reduced
+// motion — the poster still carries the hero in those cases.
+function useHeroVideo() {
+  const [play, setPlay] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const c = navigator.connection || {};
+    const slow = c.saveData === true || /(^|-)2g$/.test(c.effectiveType || '');
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (!slow && !still) setPlay(true);
+  }, []);
+  return play;
+}
 
 // Fullscreen image viewer shared by the lookbook and the order form: tap any product photo to
 // flip through its curated gallery (custom.image_and_video, native images as fallback).
@@ -124,7 +144,11 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
       products: (catalog?.products || []).filter((p) => (p.collections || []).some((x) => x.handle === c.handle)),
     }))
     .filter((s) => s.products.length > 0);
-  const heroImage = sections.find((s) => s.image)?.image || null;
+  const playVideo = useHeroVideo();
+  const [videoOn, setVideoOn] = useState(false);
+  // Step the store name down a tier as it lengthens so it keeps to one line where it can.
+  const companyLen = (link.company || '').trim().length;
+  const companySize = companyLen > 30 ? 'xs' : companyLen > 22 ? 'sm' : companyLen > 14 ? 'md' : 'lg';
 
   // Everything with a quantity across the WHOLE catalog — including items picked over on the
   // form view — so the review sheet always matches what the customer entered anywhere.
@@ -143,12 +167,37 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
   return (
     <div className="lookbook">
       <header className="lb-hero">
-        {heroImage && <img className="lb-hero-bg" src={heroImage} alt="" />}
+        {/* Brand film, not the first collection's photo. Poster paints first; the video fades in
+            over it on canplay, so a slow load or a blocked autoplay just leaves the still frame. */}
+        <img className="lb-hero-bg" src={HERO_POSTER} alt="" />
+        {playVideo && (
+          <video
+            className={`lb-hero-bg lb-hero-video${videoOn ? ' on' : ''}`}
+            src={HERO_VIDEO}
+            poster={HERO_POSTER}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            aria-hidden="true"
+            onCanPlay={() => setVideoOn(true)}
+          />
+        )}
         <div className="lb-hero-scrim" />
         <div className="lb-hero-in">
           <span className="lb-eyebrow">{link.company ? 'Private Selection' : 'The Lookbook'}</span>
           <img className="pf-logo" src={BRAND_LOGO} alt="Baci Milano" />
-          {link.company && <h1 className="lb-display">Curated for {link.company}</h1>}
+          {link.company && (
+            <h1 className="lb-display lb-name">
+              <span className="lb-curated">Curated for</span>
+              {/* Store name gets its own line and steps down a size tier as it gets longer, so
+                  short names stay big and long ones still fit on one line. If it does have to
+                  wrap, text-wrap:balance splits it into even, centred lines instead of leaving
+                  one orphan word. */}
+              <span className={`lb-company ${companySize}`}>{link.company}</span>
+            </h1>
+          )}
           <p className="lb-hero-sub">
             {sections.length} collection{sections.length !== 1 ? 's' : ''}
             {link.company ? ' selected for you' : ''} · wholesale pricing

@@ -506,7 +506,13 @@ main { padding-bottom: 96px; }
   color: #fff; background: var(--accent); padding: 0 24px clamp(40px, 8vh, 72px);
 }
 .lb-hero-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.lb-hero-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(12,12,20,.28) 0%, rgba(12,12,20,0) 34%, rgba(12,12,20,.30) 66%, rgba(12,12,20,.62) 100%); }
+/* Video sits on top of the poster and fades in only once it can actually play, so a slow load,
+   a blocked autoplay, or a decode failure leaves the still frame rather than a black box. */
+.lb-hero-video { opacity: 0; transition: opacity .6s ease; }
+.lb-hero-video.on { opacity: 1; }
+/* Moving footage is busier than a still, so the scrim runs a little heavier than the image
+   version to keep the logo and store name legible over it. */
+.lb-hero-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(12,12,20,.42) 0%, rgba(12,12,20,.16) 34%, rgba(12,12,20,.42) 66%, rgba(12,12,20,.72) 100%); }
 .lb-hero-in { position: relative; max-width: 780px; }
 .lb-hero .pf-logo { height: clamp(38px, 6vw, 54px); margin: 0 auto; }
 
@@ -515,7 +521,19 @@ main { padding-bottom: 96px; }
 .lb-eyebrow { display: block; text-transform: uppercase; letter-spacing: .34em; font-size: 11px; font-weight: 600; margin-bottom: 20px; opacity: .9; }
 .lb-display { font-family: var(--brand-sans); font-weight: 500; line-height: 1.05; letter-spacing: -.02em; }
 
-.lb-hero h1.lb-display { font-size: clamp(36px, 7.5vw, 62px); margin: 24px 0 8px; }
+/* Hero title: "Curated for" sits above the store name as a small label, and the name gets its
+   own line at a size tier chosen from its length (see companySize in Lookbook.jsx) so it fits on
+   one line wherever possible. Anything that still wraps balances into even, centred lines. */
+.lb-name { display: block; margin: 20px 0 8px; text-align: center; }
+.lb-curated { display: block; font-size: 12px; letter-spacing: .22em; text-transform: uppercase; font-weight: 600; opacity: .85; margin-bottom: 10px; }
+.lb-company {
+  display: block; text-wrap: balance; text-align: center;
+  line-height: 1.06; letter-spacing: -.02em; overflow-wrap: break-word; hyphens: auto;
+}
+.lb-company.lg { font-size: clamp(34px, 7.4vw, 60px); }
+.lb-company.md { font-size: clamp(28px, 5.8vw, 48px); }
+.lb-company.sm { font-size: clamp(24px, 4.6vw, 38px); }
+.lb-company.xs { font-size: clamp(20px, 3.6vw, 30px); }
 .lb-hero-sub { margin: 16px 0 0; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; opacity: .92; }
 .lb-note { font-style: italic; font-size: clamp(16px, 2.2vw, 19px); margin: 20px 0 0; opacity: .95; }
 .lb-cta {
