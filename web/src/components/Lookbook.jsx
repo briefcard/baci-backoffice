@@ -8,7 +8,10 @@ const BRAND_LOGO = 'https://bacimilanousa.com/cdn/shop/files/Baci_Logo_-_White.p
 // The poster paints instantly so the hero is never blank; the video fades in over it once it can
 // actually play. Reps work on venue Wi-Fi, so this is deliberately small and skippable.
 const HERO_VIDEO = 'https://cdn.shopify.com/s/files/1/0769/1993/1192/files/baci-lookbook-hero.mp4?v=1786055850';
-const HERO_POSTER = 'https://cdn.shopify.com/s/files/1/0769/1993/1192/files/baci-lookbook-hero-poster.jpg?v=1786055849';
+// Poster is the video's FIRST frame, pulled at 1920x1080 from the original master (not from the
+// 720p transcode — that was a compressed frame of already-compressed video). Matching frame 0
+// means the fade to video has no visible jump.
+const HERO_POSTER = 'https://cdn.shopify.com/s/files/1/0769/1993/1192/files/baci-lookbook-hero-poster-hq.jpg?v=1786057485';
 
 // Don't pull 3MB of video on a metered/slow connection or when the viewer prefers reduced
 // motion — the poster still carries the hero in those cases.
