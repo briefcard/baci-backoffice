@@ -146,9 +146,11 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
     .filter((s) => s.products.length > 0);
   const playVideo = useHeroVideo();
   const [videoOn, setVideoOn] = useState(false);
-  // Step the store name down a tier as it lengthens so it keeps to one line where it can.
-  const companyLen = (link.company || '').trim().length;
-  const companySize = companyLen > 30 ? 'xs' : companyLen > 22 ? 'sm' : companyLen > 14 ? 'md' : 'lg';
+  // Character count drives the hero name's font size (see --chars in styles.css): the size is
+  // derived from BOTH the available width and the name's length, so a short name is large on any
+  // screen and a long one shrinks just enough to hold one line — instead of a fixed size tier
+  // that would over-shrink on desktop and still overflow on a phone.
+  const companyChars = Math.max((link.company || '').trim().length, 1);
 
   // Everything with a quantity across the WHOLE catalog — including items picked over on the
   // form view — so the review sheet always matches what the customer entered anywhere.
@@ -195,7 +197,9 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
                   short names stay big and long ones still fit on one line. If it does have to
                   wrap, text-wrap:balance splits it into even, centred lines instead of leaving
                   one orphan word. */}
-              <span className={`lb-company ${companySize}`}>{link.company}</span>
+              <span className="lb-company" style={{ '--chars': companyChars }}>
+                {link.company}
+              </span>
             </h1>
           )}
           <p className="lb-hero-sub">
