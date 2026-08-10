@@ -13,7 +13,7 @@ import { ImageLightbox, ReviewSheet } from './Lookbook.jsx';
 //
 // qty can be CONTROLLED by the parent (pass qty + onQty) so the lookbook and the form share one
 // order — quantities entered on either surface survive switching between them.
-export function OrderFormView({ snapshot, config, availability, mode, me, code, onExit, prefill, qty: qtyProp, onQty }) {
+export function OrderFormView({ snapshot, config, availability, mode, me, code, onExit, prefill, qty: qtyProp, onQty, onBackToLookbook }) {
   const currency = config?.currency || 'USD';
   const pct = config?.discountPct ?? 50;
   const [qtyLocal, setQtyLocal] = useState({}); // variantId -> quantity (uncontrolled fallback)
@@ -84,6 +84,11 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
           <button className="primary" onClick={startOver}>
             Start a new order form
           </button>
+          {onBackToLookbook && (
+            <button className="secondary" onClick={onBackToLookbook}>
+              ‹ Back to lookbook
+            </button>
+          )}
           {mode === 'kiosk' && (
             <button className="link" onClick={() => setExitAsk(true)}>
               Rep: exit form mode
@@ -110,6 +115,14 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
       </header>
 
       <div className="form-sticky">
+        {/* Lives in the STICKY bar, not the header — the header scrolls away, and the whole point
+            is being able to hop back to the lookbook from anywhere in a long form. Quantities are
+            held by the parent, so nothing is lost going back and forth. */}
+        {onBackToLookbook && (
+          <button className="form-back" onClick={onBackToLookbook}>
+            ‹ Back to lookbook
+          </button>
+        )}
         <input
           className="search"
           placeholder="Find an item or SKU…"

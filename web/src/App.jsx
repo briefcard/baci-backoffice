@@ -130,6 +130,9 @@ function PublicOrderForm({ initialCode }) {
       prefill={catalog.link || null}
       qty={qty}
       onQty={setQty}
+      // Only offer the return trip when there IS a lookbook behind the form — a plain event-code
+      // QR opens straight to the form and has nowhere to go back to.
+      onBackToLookbook={catalog.link ? () => setStage('lookbook') : undefined}
     />
   );
 }
@@ -521,6 +524,9 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
         onExit={onExit}
         qty={qty}
         onQty={setQty}
+        // Presented at the booth: back returns to the customer-facing lookbook, not the rep's
+        // curation screen, so the customer never sees the rep tooling.
+        onBackToLookbook={() => setStage('present')}
       />
     );
   }
