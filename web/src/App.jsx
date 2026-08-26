@@ -100,10 +100,15 @@ function PublicOrderForm({ initialCode }) {
   const availability = {};
   for (const p of catalog.products || []) for (const v of p.variants) availability[v.id] = v.available ?? 0;
 
+  // A price-free link has no order form behind it at all — the form is a pricing surface, and
+  // the payload it would render has had every price stripped server-side. The lookbook IS the
+  // whole experience: heart pieces, send the selection back as a quote request.
+  const priceFree = catalog.config?.pricing === 'none';
+
   // Personalized links open on the lookbook (curated collections, big imagery) — now SHOPPABLE:
   // customers order directly on it, or tap through to the form (the qty state is shared, so
   // nothing is lost switching). Plain event codes go straight to the form.
-  if (catalog.link && stage !== 'form') {
+  if (catalog.link && (priceFree || stage !== 'form')) {
     return (
       <Lookbook
         catalog={catalog}
@@ -270,9 +275,16 @@ function Shell({ me }) {
     );
   }
 
-  const pendingCount = (pending || []).filter((p) => p.status === 'pending').length;
+  // One pool, two tabs. Quote requests come off price-free lookbooks — the customer never saw a
+  // price, so these are interest lists to be priced and quoted back, not orders to confirm.
+  // Keeping them out of Pending stops a rep from confirming one as if it were a placed order.
+  const orders = (pending || []).filter((p) => p.intent !== 'quote');
+  const quotes = (pending || []).filter((p) => p.intent === 'quote');
+  const pendingCount = orders.filter((p) => p.status === 'pending').length;
+  const quoteCount = quotes.filter((p) => p.status === 'pending').length;
   const showCheckout = isCaptain && view === 'checkout';
   const showPending = view === 'pending';
+  const showQuotes = view === 'quotes';
   const showInbound = isAdmin && view === 'inbound';
 
   // A rep opened a submitted form: seed the normal cart with its lines (priced from the live
@@ -308,6 +320,7 @@ function Shell({ me }) {
     const hasCustomer = c.company || c.contact || c.email || c.phone;
     setReviewing({
       pendingId: p.id,
+      intent: p.intent,
       customer: hasCustomer
         ? {
             id: null,
@@ -391,6 +404,9 @@ function Shell({ me }) {
           <button className={showPending ? 'tab active' : 'tab'} onClick={() => setView('pending')}>
             Pending{pendingCount > 0 ? ` · ${pendingCount}` : ''}
           </button>
+          <button className={showQuotes ? 'tab active' : 'tab'} onClick={() => setView('quotes')}>
+            Quotes{quoteCount > 0 ? ` · ${quoteCount}` : ''}
+          </button>
           {isCaptain && (
             <button className={view === 'checkout' ? 'tab active' : 'tab'} onClick={() => setView('checkout')}>
               Checkout
@@ -402,7 +418,7 @@ function Shell({ me }) {
             </button>
           )}
         </div>
-        {!showCheckout && !showPending && !showInbound && (
+        {!showCheckout && !showPending && !showQuotes && !showInbound && (
           <input
             className="search"
             placeholder="Search SKU, name, or type…"
@@ -418,7 +434,9 @@ function Shell({ me }) {
         ) : showCheckout ? (
           <CheckoutView config={s.config} />
         ) : showPending ? (
-          <PendingView pending={pending} onOpen={openPending} onDismiss={dismissPending} />
+          <PendingView pending={orders} onOpen={openPending} onDismiss={dismissPending} />
+        ) : showQuotes ? (
+          <PendingView pending={quotes} onOpen={openPending} onDismiss={dismissPending} intent="quote" />
         ) : query.trim() ? (
           <>
             {results.map((p) => (
@@ -455,6 +473,7 @@ function Shell({ me }) {
           config={s.config}
           availability={s.availability}
           pendingId={reviewing?.pendingId}
+          pendingIntent={reviewing?.intent}
           initialCustomer={reviewing?.customer}
           initialNotes={reviewing?.notes}
           onClose={closeCart}
@@ -489,6 +508,9 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
   const [share, setShare] = useState(false);
   const [lockAsk, setLockAsk] = useState(false);
   const [qty, setQty] = useState({}); // SHARED lookbook↔form order (variantId -> quantity)
+  // Present price-free at the booth too: same heart-and-quote flow the shared link gives, for a
+  // buyer standing in front of you who shouldn't be shown trade pricing yet.
+  const [priceFree, setPriceFree] = useState(false);
 
   const all = config?.formCollections || [];
 
@@ -497,13 +519,17 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
   // (including "Everything else" items that live outside the catalogue collections).
   const filtered = useMemo(() => {
     const sel = all.filter((c) => !excluded.has(c.handle));
-    if (sel.length === all.length) return { products: snapshot.products, config };
+    // Kiosk runs on the rep's own logged-in device, so the full-price snapshot is legitimately
+    // in memory here; price-free is a presentation choice, not a data boundary. (On a SHARED
+    // link the prices are stripped server-side instead — see snapshot.stripPricing.)
+    const pricing = priceFree ? 'none' : undefined;
+    if (sel.length === all.length) return { products: snapshot.products, config: { ...config, pricing } };
     const set = new Set(sel.map((c) => c.handle));
     return {
       products: (snapshot.products || []).filter((p) => (p.collections || []).some((c) => set.has(c.handle))),
-      config: { ...config, formCollections: sel },
+      config: { ...config, formCollections: sel, pricing },
     };
-  }, [snapshot, config, all, excluded]);
+  }, [snapshot, config, all, excluded, priceFree]);
 
   const toggle = (handle) =>
     setExcluded((s) => {
@@ -574,6 +600,14 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
             Form · {selCount}/{all.length} collections
           </strong>
           <span className="curate-actions">
+            <button
+              className={priceFree ? 'hbtn on' : 'hbtn'}
+              onClick={() => setPriceFree((v) => !v)}
+              aria-pressed={priceFree}
+              title={priceFree ? 'Prices hidden — customers heart pieces for a quote' : 'Prices showing'}
+            >
+              {priceFree ? '♡ No prices' : '$ Prices on'}
+            </button>
             <button className="hbtn" onClick={() => setShare(true)}>
               🔗 Share
             </button>
@@ -608,6 +642,7 @@ function FormStage({ snapshot, config, availability, me, onExit }) {
         <ShareFormSheet
           mainCollections={all}
           initialSelected={excluded.size ? filtered.config.formCollections.map((c) => c.handle) : []}
+          initialPricing={priceFree ? 'none' : 'wholesale'}
           onClose={() => setShare(false)}
         />
       )}

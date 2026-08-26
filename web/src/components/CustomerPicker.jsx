@@ -284,7 +284,7 @@ export function CustomerPicker({ value, onChange, mainCollections = [] }) {
 // interests), or from the rep's Form stage with NO customer (initialSelected carries the curated
 // set; the link opens a generic lookbook — logo over the header image — unless the rep fills in
 // the optional recipient fields). Submissions credit this rep either way.
-export function ShareFormSheet({ customer = null, mainCollections = [], initialSelected, onClose }) {
+export function ShareFormSheet({ customer = null, mainCollections = [], initialSelected, initialPricing = 'wholesale', onClose }) {
   const interested = new Set(customer?.collectionsOfInterest || []);
   const [selected, setSelected] = useState(
     () =>
@@ -293,6 +293,7 @@ export function ShareFormSheet({ customer = null, mainCollections = [], initialS
       )
   );
   const [who, setWho] = useState({ company: '', contact: '', email: '', phone: '' });
+  const [pricing, setPricing] = useState(initialPricing); // 'wholesale' | 'none'
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -317,6 +318,7 @@ export function ShareFormSheet({ customer = null, mainCollections = [], initialS
           : who,
         collections: [...selected],
         note,
+        pricing,
       });
       setUrl(res.url);
     } catch (e) {
@@ -347,9 +349,11 @@ export function ShareFormSheet({ customer = null, mainCollections = [], initialS
           {!url ? (
             <>
               <div className="muted small">
-                {customer
-                  ? 'Pick the collections for their lookbook + form (empty = full catalog). Their info will be prefilled and orders from this link are credited to you.'
-                  : 'The link opens this lookbook + form (empty selection = full catalog). Orders from it are credited to you.'}
+                {pricing === 'none'
+                  ? `Pick the collections for their lookbook (empty = full catalog).${customer ? ' Their info will be prefilled.' : ''} Whatever they save comes back credited to you.`
+                  : customer
+                    ? 'Pick the collections for their lookbook + form (empty = full catalog). Their info will be prefilled and orders from this link are credited to you.'
+                    : 'The link opens this lookbook + form (empty selection = full catalog). Orders from it are credited to you.'}
               </div>
               <div className="chips">
                 {mainCollections.map((c) => (
@@ -375,6 +379,31 @@ export function ShareFormSheet({ customer = null, mainCollections = [], initialS
                   <input placeholder="Phone" value={who.phone} onChange={(e) => setWho({ ...who, phone: e.target.value })} />
                 </>
               )}
+              <div className="muted small">What the link shows</div>
+              <div className="seg">
+                <button
+                  type="button"
+                  className={pricing === 'wholesale' ? 'seg-btn on' : 'seg-btn'}
+                  onClick={() => setPricing('wholesale')}
+                >
+                  <strong>Wholesale pricing</strong>
+                  <small>They see prices and place an order</small>
+                </button>
+                <button
+                  type="button"
+                  className={pricing === 'none' ? 'seg-btn on' : 'seg-btn'}
+                  onClick={() => setPricing('none')}
+                >
+                  <strong>No prices</strong>
+                  <small>They heart pieces and request a quote</small>
+                </button>
+              </div>
+              {pricing === 'none' && (
+                <div className="muted small">
+                  Prices are stripped from the page itself, so this link is safe to forward around
+                  a buying team. Their selection lands in the Quotes tab.
+                </div>
+              )}
               <textarea placeholder="Personal note shown on their lookbook (optional)" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
               {err && <div className="err">{err}</div>}
               <button type="button" className="primary" disabled={busy} onClick={create}>
@@ -383,7 +412,11 @@ export function ShareFormSheet({ customer = null, mainCollections = [], initialS
             </>
           ) : (
             <>
-              <div className="muted small">Send this link — it opens their lookbook and order form:</div>
+              <div className="muted small">
+                {pricing === 'none'
+                  ? 'Send this link — it opens a price-free lookbook they can save pieces from:'
+                  : 'Send this link — it opens their lookbook and order form:'}
+              </div>
               <div className="share-url">{url}</div>
               <button type="button" className="primary" onClick={copy}>
                 {copied ? '✓ Copied' : 'Copy link'}

@@ -9,6 +9,14 @@ const mem = new Map(); // token -> link (dev fallback)
 
 const s = (v, n = 200) => (v == null ? '' : String(v).slice(0, n));
 
+// What a link shows. 'wholesale' is the original behaviour: wholesale + MSRP on every piece,
+// and the recipient places an order. 'none' shares the catalogue with NO pricing at all — the
+// recipient hearts what interests them and sends it back as a quote request. Use it for buyers
+// who haven't been approved for wholesale yet, for a link that will get forwarded around a
+// buying team, or any time showing the trade price would be premature.
+export const PRICING_MODES = ['wholesale', 'none'];
+const pricingMode = (v) => (PRICING_MODES.includes(v) ? v : 'wholesale');
+
 export async function createLink(by, body = {}) {
   const c = body.customer || {};
   const link = {
@@ -22,6 +30,7 @@ export async function createLink(by, body = {}) {
     },
     collections: Array.isArray(body.collections) ? body.collections.map((h) => s(h, 80)).filter(Boolean) : [],
     note: s(body.note, 500),
+    pricing: pricingMode(body.pricing),
     createdBy: by || null,
     createdAt: new Date().toISOString(),
     active: true,
@@ -32,9 +41,9 @@ export async function createLink(by, body = {}) {
     return link;
   }
   await q(
-    `INSERT INTO form_links (token, customer, collections, note, created_by, created_at, active, hits)
-     VALUES ($1,$2,$3,$4,$5,$6,true,0)`,
-    [link.token, link.customer, JSON.stringify(link.collections), link.note, link.createdBy, link.createdAt]
+    `INSERT INTO form_links (token, customer, collections, note, pricing, created_by, created_at, active, hits)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,true,0)`,
+    [link.token, link.customer, JSON.stringify(link.collections), link.note, link.pricing, link.createdBy, link.createdAt]
   );
   return link;
 }
@@ -60,6 +69,8 @@ export async function resolveLink(token) {
     customer: r.customer || {},
     collections: r.collections || [],
     note: r.note || '',
+    // Links created before price-free sharing existed have no column value on older rows.
+    pricing: pricingMode(r.pricing),
     createdBy: r.created_by,
     active: r.active,
   };

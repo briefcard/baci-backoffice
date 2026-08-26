@@ -307,8 +307,25 @@ export function snapshotResponse() {
   };
 }
 
+// A price-free catalogue. Prices are removed from the PAYLOAD, not merely hidden in the UI:
+// a shared link is public to anyone who receives it (and to anyone the recipient forwards it
+// to), so wholesale pricing left in the JSON is one devtools tab away from being read. Drop the
+// per-variant money and the discount percentage that would let anyone derive it from MSRP.
+function stripPricing(payload) {
+  const { discountPct, ...config } = payload.config || {};
+  return {
+    ...payload,
+    config: { ...config, pricing: 'none' },
+    products: (payload.products || []).map((p) => ({
+      ...p,
+      variants: (p.variants || []).map(({ retailPrice, wholesaleOverride, ...v }) => v),
+    })),
+  };
+}
+
 // Personalized link response: same stripped public payload, but the catalog is trimmed to the
-// customer's curated collections and the link's prefill/customer info rides along.
+// customer's curated collections and the link's prefill/customer info rides along. A link
+// created in 'none' pricing mode also has every price stripped out of the catalog.
 export function personalizedFormResponse(link) {
   const base = publicFormResponse();
   const wanted = (link.collections || []).filter(Boolean);
@@ -327,7 +344,7 @@ export function personalizedFormResponse(link) {
     phone: link.customer?.phone || '',
     note: link.note || '',
   };
-  return base;
+  return link.pricing === 'none' ? stripPricing(base) : base;
 }
 
 // What the PUBLIC (QR) order form gets: same catalog + unit-pricing inputs, but WITHOUT the

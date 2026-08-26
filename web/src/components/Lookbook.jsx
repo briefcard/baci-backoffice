@@ -54,20 +54,49 @@ export function ImageLightbox({ images = [], title, onClose }) {
   );
 }
 
+// A heart: the only control on a price-free card. Tapping it saves the piece to the interest
+// list — no quantity, no price, no commitment, which is the whole point of the price-free share.
+function Heart({ on, onClick, label }) {
+  return (
+    <button
+      type="button"
+      className={`lb-heart${on ? ' on' : ''}`}
+      onClick={onClick}
+      aria-pressed={on}
+      aria-label={on ? `Remove ${label} from your selection` : `Save ${label} to your selection`}
+      title={on ? 'Saved — tap to remove' : 'Save to your selection'}
+    >
+      {on ? '♥' : '♡'}
+    </button>
+  );
+}
+
 // Image-forward product card: big primary photo (tap → lightbox), thumbnail strip to flip
 // through the curated gallery inline — and, when setQ is provided, per-variant qty inputs so
 // customers order straight from the lookbook (same oversell messaging as the form rows).
-function GalleryCard({ product, pct, currency, onZoom, availability, qty, setQ, lead }) {
+//
+// PRICE-FREE (priceFree): no money renders at all and the qty inputs become hearts. A
+// single-variant piece gets one heart over the photo; a multi-variant piece gets a heart per
+// variant, so "I want the blue one" survives into the quote.
+function GalleryCard({ product, pct, currency, onZoom, availability, qty, setQ, lead, priceFree }) {
   const gallery = product.gallery?.length ? product.gallery : product.image ? [product.image] : [];
   const [idx, setIdx] = useState(0);
   const v0 = product.variants[0];
   const multi = product.variants.length > 1;
+  const hearts = priceFree && setQ;
   return (
-    <figure className="lb-card">
+    <figure className={`lb-card${priceFree ? ' lb-card-plain' : ''}`}>
       {gallery.length ? (
         <img src={gallery[idx]} alt="" loading="lazy" onClick={() => onZoom(gallery, product.title)} />
       ) : (
         <div className="lb-ph" />
+      )}
+      {hearts && !multi && v0 && (
+        <Heart
+          on={(qty?.[v0.id] || 0) > 0}
+          onClick={() => setQ(v0.id, (qty?.[v0.id] || 0) > 0 ? 0 : 1)}
+          label={product.title}
+        />
       )}
       {gallery.length > 1 && (
         <div className="lb-thumbs">
@@ -78,12 +107,30 @@ function GalleryCard({ product, pct, currency, onZoom, availability, qty, setQ, 
       )}
       <figcaption>
         <span className="lb-title">{product.title}</span>
-        <span className="lb-price">
-          {money(v0 ? unitWholesalePrice(v0, pct) : 0, currency)}{' '}
-          <small>MSRP {money(v0?.retailPrice || 0, currency)}</small>
-        </span>
+        {!priceFree && (
+          <span className="lb-price">
+            {money(v0 ? unitWholesalePrice(v0, pct) : 0, currency)}{' '}
+            <small>MSRP {money(v0?.retailPrice || 0, currency)}</small>
+          </span>
+        )}
       </figcaption>
-      {setQ && (
+
+      {hearts && multi && (
+        <div className="lb-vars lb-vars-heart">
+          {product.variants.map((v) => (
+            <div className="lb-var" key={v.id}>
+              <span className="lb-var-label">{v.title && v.title !== 'Default Title' ? v.title : v.sku || '—'}</span>
+              <Heart
+                on={(qty?.[v.id] || 0) > 0}
+                onClick={() => setQ(v.id, (qty?.[v.id] || 0) > 0 ? 0 : 1)}
+                label={`${product.title} ${v.title || ''}`.trim()}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!priceFree && setQ && (
         <div className="lb-vars">
           {product.variants.map((v) => {
             const avail = Math.max(0, availability?.[v.id] ?? v.available ?? 0);
@@ -131,6 +178,10 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
   const pct = config.discountPct ?? 50;
   const lead = config.leadTime || '6–10 weeks';
   const link = catalog?.link || {};
+  // Price-free share: no pricing anywhere, hearts instead of quantities, and the submission is
+  // a request for a quote rather than an order. The server has already stripped the prices out
+  // of this payload — this flag only decides what we draw.
+  const priceFree = config.pricing === 'none';
   const [zoom, setZoom] = useState(null); // { images, title }
   const [review, setReview] = useState(false);
   const [doneState, setDoneState] = useState(null); // null | 'sent' | 'queued'
@@ -149,6 +200,10 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
     .filter((s) => s.products.length > 0);
   const playVideo = useHeroVideo();
   const [videoOn, setVideoOn] = useState(false);
+  // Price-free hero has nothing to "start" — its CTA just drops the viewer into the first
+  // collection, and the fixed bar takes over once they've hearted something.
+  const scrollToCollections = () =>
+    document.querySelector('.lb-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   // Character count drives the hero name's font size (see --chars in styles.css): the size is
   // derived from BOTH the available width and the name's length, so a short name is large on any
   // screen and a long one shrinks just enough to hold one line — instead of a fixed size tier
@@ -207,12 +262,23 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
           )}
           <p className="lb-hero-sub">
             {sections.length} collection{sections.length !== 1 ? 's' : ''}
-            {link.company ? ' selected for you' : ''} · wholesale pricing
+            {link.company ? ' selected for you' : ''} · {priceFree ? 'the collection' : 'wholesale pricing'}
           </p>
           {link.note && <p className="lb-note">“{link.note}”</p>}
-          <button className="lb-cta" onClick={onStart}>
-            {cta}
-          </button>
+          {priceFree ? (
+            <>
+              <button className="lb-cta" onClick={scrollToCollections}>
+                View the collections ▾
+              </button>
+              <p className="lb-hero-hint">
+                Tap ♡ on anything that interests you — we'll send pricing on your selection.
+              </p>
+            </>
+          ) : (
+            <button className="lb-cta" onClick={onStart}>
+              {cta}
+            </button>
+          )}
         </div>
       </header>
 
@@ -246,13 +312,30 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
                 qty={qty}
                 setQ={setQ}
                 lead={lead}
+                priceFree={priceFree}
               />
             ))}
           </div>
         </section>
       ))}
 
-      {shoppable && unitCount > 0 ? (
+      {priceFree ? (
+        // The interest list. Before anything is hearted the bar is a prompt, not a dead button —
+        // tapping it scrolls into the collections rather than opening an empty sheet.
+        chosen.length > 0 ? (
+          <button className="cartbar lb-bar" onClick={() => setReview(true)}>
+            <span>
+              ♥ {chosen.length} piece{chosen.length !== 1 ? 's' : ''} saved
+            </span>
+            <span>Request a quote ▸</span>
+          </button>
+        ) : (
+          <button className="cartbar lb-bar lb-bar-quiet" onClick={scrollToCollections}>
+            <span>{link.company || 'Baci Milano'}</span>
+            <span>Tap ♡ to save pieces</span>
+          </button>
+        )
+      ) : shoppable && unitCount > 0 ? (
         <button className="cartbar lb-bar" onClick={() => setReview(true)}>
           <span>
             {unitCount} unit{unitCount !== 1 ? 's' : ''} · {chosen.length} item{chosen.length !== 1 ? 's' : ''}
@@ -274,6 +357,7 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
           currency={currency}
           mode={mode}
           code={code}
+          intent={priceFree ? 'quote' : 'order'}
           onBack={() => setReview(false)}
           onDone={(state) => {
             setReview(false);
@@ -287,12 +371,14 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
         <div className="cart-overlay">
           <div className="cart">
             <div className="form-done">
-              <div className="big-check">✓</div>
-              <h2>Order received!</h2>
+              <div className="big-check">{priceFree ? '♥' : '✓'}</div>
+              <h2>{priceFree ? 'Your selection is with us' : 'Order received!'}</h2>
               <p className="muted">
                 {doneState === 'queued'
                   ? 'Saved on this device — it will send automatically the moment signal returns.'
-                  : 'A Baci Milano rep will review the totals with you shortly.'}
+                  : priceFree
+                    ? 'A Baci Milano rep will come back to you with pricing and availability on the pieces you saved.'
+                    : 'A Baci Milano rep will review the totals with you shortly.'}
               </p>
               <button
                 className="primary"
@@ -316,7 +402,8 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
 // The customer's submit sheet — lines with the ready/deposit split, contact fields, and the
 // offline-queueing submit. Lives here (not OrderFormView) so both the lookbook and the form can
 // use it without a circular import; totals are NEVER rendered in customer mode.
-export function ReviewSheet({ chosen, availability, currency, mode, code, onBack, onDone, setQ, prefill }) {
+export function ReviewSheet({ chosen, availability, currency, mode, code, onBack, onDone, setQ, prefill, intent = 'order' }) {
+  const quote = intent === 'quote';
   const [company, setCompany] = useState(prefill?.company || '');
   const [contact, setContact] = useState(prefill?.contact || '');
   const [email, setEmail] = useState(prefill?.email || '');
@@ -342,6 +429,7 @@ export function ReviewSheet({ chosen, availability, currency, mode, code, onBack
         })),
         customer: { company, contact, email, phone },
         notes,
+        intent,
       };
       const { queued } = await submitOrQueue({ kind: mode === 'public' ? 'qr' : 'kiosk', code, payload });
       onDone(queued ? 'queued' : 'sent');
@@ -355,7 +443,7 @@ export function ReviewSheet({ chosen, availability, currency, mode, code, onBack
     <div className="cart-overlay" onClick={onBack}>
       <div className="cart" onClick={(e) => e.stopPropagation()}>
         <div className="cart-head">
-          <strong>Your order</strong>
+          <strong>{quote ? 'Request a quote' : 'Your order'}</strong>
           <button className="x" onClick={onBack}>
             ✕
           </button>
@@ -370,14 +458,32 @@ export function ReviewSheet({ chosen, availability, currency, mode, code, onBack
                 {c.product.image ? <img src={c.product.image} alt="" /> : <div className="ph" />}
                 <div className="cinfo">
                   <div className="ct">{c.product.title}</div>
-                  <div className="cs">
-                    {c.variant.sku} · qty {c.qty}
-                    {dep > 0 && (
-                      <span className="cs-dep">
-                        {now > 0 ? ` — ${now} now · ${dep} on deposit` : ' — on deposit (ships when available)'}
-                      </span>
-                    )}
-                  </div>
+                  {quote ? (
+                    // Quantity is optional here — the customer is asking what it costs, not
+                    // committing. But a number they DO give lets the rep quote volume pricing
+                    // in one pass instead of a round trip, so it's worth offering.
+                    <label className="cs cq-wrap">
+                      {c.variant.sku} ·{' '}
+                      <input
+                        className="cq"
+                        type="number"
+                        inputMode="numeric"
+                        min="1"
+                        value={c.qty}
+                        onChange={(e) => setQ(c.variant.id, Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                      />{' '}
+                      <span className="muted">qty (optional)</span>
+                    </label>
+                  ) : (
+                    <div className="cs">
+                      {c.variant.sku} · qty {c.qty}
+                      {dep > 0 && (
+                        <span className="cs-dep">
+                          {now > 0 ? ` — ${now} now · ${dep} on deposit` : ' — on deposit (ships when available)'}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button className="link" onClick={() => setQ(c.variant.id, 0)}>
                   Remove
@@ -386,15 +492,18 @@ export function ReviewSheet({ chosen, availability, currency, mode, code, onBack
             );
           })}
 
-          {chosen.some((c) => c.qty > Math.max(0, availability?.[c.variant.id] ?? c.variant.available ?? 0)) && (
-            <div className="dep-note">
-              Quantities beyond what's on hand are <strong>secured with a deposit</strong> and ship
-              as soon as stock arrives — so nothing gets oversold. Your rep will go over the details.
-            </div>
-          )}
+          {!quote &&
+            chosen.some((c) => c.qty > Math.max(0, availability?.[c.variant.id] ?? c.variant.available ?? 0)) && (
+              <div className="dep-note">
+                Quantities beyond what's on hand are <strong>secured with a deposit</strong> and ship
+                as soon as stock arrives — so nothing gets oversold. Your rep will go over the details.
+              </div>
+            )}
 
           <div className="muted small form-note">
-            A Baci Milano rep will go over totals, availability, and any volume pricing with you.
+            {quote
+              ? 'Nothing is ordered by sending this. A Baci Milano rep will come back with wholesale pricing and availability on these pieces.'
+              : 'A Baci Milano rep will go over totals, availability, and any volume pricing with you.'}
           </div>
 
           <div className="cfields">
@@ -402,12 +511,17 @@ export function ReviewSheet({ chosen, availability, currency, mode, code, onBack
             <input placeholder="Your name" value={contact} onChange={(e) => setContact(e.target.value)} />
             <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
             <input placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
-            <textarea placeholder="Anything we should know?" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+            <textarea
+              placeholder={quote ? 'Anything we should know? (timing, quantities, questions)' : 'Anything we should know?'}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+            />
           </div>
 
           {err && <div className="err">{err}</div>}
           <button className="primary" disabled={busy || chosen.length === 0} onClick={submit}>
-            {busy ? 'Submitting…' : 'Submit order form'}
+            {busy ? 'Sending…' : quote ? 'Send quote request' : 'Submit order form'}
           </button>
         </div>
       </div>

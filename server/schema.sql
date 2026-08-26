@@ -109,6 +109,14 @@ CREATE TABLE IF NOT EXISTS form_links (
   last_used_at TIMESTAMPTZ
 );
 
+-- Price-free sharing (added later; idempotent). 'wholesale' = the link shows wholesale + MSRP
+-- and takes orders; 'none' = a price-free catalogue where the customer hearts what interests
+-- them and the submission comes back as a quote request.
+ALTER TABLE form_links ADD COLUMN IF NOT EXISTS pricing TEXT NOT NULL DEFAULT 'wholesale';
+
+-- Whether a pool row is a firm order form or a request for a quote (added later; idempotent).
+ALTER TABLE pending_orders ADD COLUMN IF NOT EXISTS intent TEXT NOT NULL DEFAULT 'order';
+
 -- Supplier-invoice payment tracking on shipments (added later; idempotent).
 ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'unpaid'; -- unpaid | deposit_paid | paid
 ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS paid_amount NUMERIC;

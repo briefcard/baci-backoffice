@@ -9,7 +9,10 @@ const sum = (its) => its.reduce((s, i) => s + i.unit * i.qty, 0);
 
 // Also used to review a customer-submitted order form: `pendingId` switches the submit to the
 // pending-confirm endpoint (which closes out the pool entry), with the buyer's info prefilled.
-export function Cart({ config, availability, onClose, onFinished, onDiscard, pendingId, initialCustomer, initialNotes }) {
+export function Cart({ config, availability, onClose, onFinished, onDiscard, pendingId, pendingIntent, initialCustomer, initialNotes }) {
+  // A quote request arrives with no pricing seen by the customer — same review drawer, but the
+  // rep is pricing an interest list rather than checking someone's own order back to them.
+  const isQuote = pendingIntent === 'quote';
   const items = useCart();
   const currency = config?.currency || 'USD';
   const tiers = config?.tiers || [];
@@ -165,7 +168,7 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
     <div className="cart-overlay" onClick={onClose}>
       <div className="cart" onClick={(e) => e.stopPropagation()}>
         <div className="cart-head">
-          <strong>{pendingId ? 'Review order form' : 'Order'}</strong>
+          <strong>{isQuote ? 'Price this quote request' : pendingId ? 'Review order form' : 'Order'}</strong>
           <button className="x" onClick={onClose}>
             ✕
           </button>

@@ -4,8 +4,12 @@ import React from 'react';
 // them; each is stamped with the booth/rep that captured it (or QR). Opening one seeds the
 // normal cart review — totals, volume discount, deposit, customer attach — then Confirm creates
 // the Shopify draft order(s) through the standard pipeline.
-export function PendingView({ pending, onOpen, onDismiss }) {
-  if (pending == null) return <div className="center muted">Loading pending forms…</div>;
+// `intent="quote"` renders the same pool as QUOTE REQUESTS: selections hearted off a price-free
+// lookbook. The row copy changes because the job changes — these want pricing sent back, not an
+// order confirmed. Opening one still seeds the cart, which is exactly how the rep prices it.
+export function PendingView({ pending, onOpen, onDismiss, intent = 'order' }) {
+  const quote = intent === 'quote';
+  if (pending == null) return <div className="center muted">Loading {quote ? 'quote requests' : 'pending forms'}…</div>;
 
   const open = pending.filter((p) => p.status === 'pending');
   const handled = pending.filter((p) => p.status !== 'pending');
@@ -26,20 +30,32 @@ export function PendingView({ pending, onOpen, onDismiss }) {
 
   return (
     <div className="pending">
-      {open.length === 0 && <div className="center muted">No order forms waiting. 📋</div>}
+      {open.length === 0 && (
+        <div className="center muted">
+          {quote ? 'No quote requests waiting. ♡' : 'No order forms waiting. 📋'}
+        </div>
+      )}
+
+      {quote && open.length > 0 && (
+        <div className="muted small form-note">
+          Pieces a customer saved from a price-free lookbook. They have not seen pricing — open one
+          to price it and send the quote back.
+        </div>
+      )}
 
       {open.map((p) => (
         <div className="pend-row" key={p.id}>
           <div className="pend-main">
             <div className="pend-line1">
               <strong>{who(p)}</strong>
+              {quote && <span className="badge new">Quote</span>}
               <span className={`badge ${p.source === 'qr' ? 'card' : 'ready'}`}>
                 {p.source === 'qr' ? 'QR' : p.repName || 'Kiosk'}
               </span>
             </div>
             <div className="muted small">
-              {when(p.createdAt)} · {(p.lines || []).length} item{(p.lines || []).length !== 1 ? 's' : ''} ·{' '}
-              {units(p)} units
+              {when(p.createdAt)} · {(p.lines || []).length} {quote ? 'piece' : 'item'}
+              {(p.lines || []).length !== 1 ? 's' : ''} · {units(p)} units
               {p.notes ? ` · “${p.notes.slice(0, 60)}${p.notes.length > 60 ? '…' : ''}”` : ''}
             </div>
           </div>
@@ -48,7 +64,7 @@ export function PendingView({ pending, onOpen, onDismiss }) {
               Dismiss
             </button>
             <button className="primary small" onClick={() => onOpen(p)}>
-              Review ▸
+              {quote ? 'Price it ▸' : 'Review ▸'}
             </button>
           </div>
         </div>

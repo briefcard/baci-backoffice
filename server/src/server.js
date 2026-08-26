@@ -497,6 +497,8 @@ async function acceptSubmission(reply, fields) {
 app.post('/api/order-forms', { preHandler: requireAuth }, async (req, reply) =>
   acceptSubmission(reply, {
     source: 'kiosk',
+    // Kiosk is a rep-run device, so the rep's own choice of price-free presentation decides this.
+    intent: req.body?.intent,
     repEmail: req.rep.email,
     repName: req.rep.name,
     customer: req.body?.customer,
@@ -540,6 +542,10 @@ app.post('/api/form/submit', async (req, reply) => {
     : submitted;
   return acceptSubmission(reply, {
     source: link ? 'link' : 'qr',
+    // Decided by the LINK, never by the client: a price-free link can only produce a quote
+    // request, whatever the posted body claims. Anything else would let a crafted request file
+    // itself as a firm order from a customer who was never shown a price.
+    intent: link?.pricing === 'none' ? 'quote' : req.body?.intent,
     repEmail: link?.createdBy || undefined,
     repName: link ? 'Form link' : undefined,
     customer,

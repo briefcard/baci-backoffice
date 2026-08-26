@@ -233,10 +233,15 @@ function FormRow({ product, availability, pct, currency, qty, setQ, lead }) {
                   {out && <span className="flater">deposit · ~{lead}</span>}
                   {!out && over > 0 && <span className="flater">+{over} on deposit</span>}
                 </div>
-                <span className="fpricewrap">
-                  <span className="fprice">{money(unitWholesalePrice(v, pct), currency)}</span>
-                  <span className="fmsrp">MSRP {money(v.retailPrice, currency)}</span>
-                </span>
+                {/* A price-free payload has no retailPrice to work from — pricing it here would
+                    render "$NaN". The lookbook is the only surface a price-free share reaches,
+                    but this row must not depend on that being true. */}
+                {v.retailPrice != null && (
+                  <span className="fpricewrap">
+                    <span className="fprice">{money(unitWholesalePrice(v, pct), currency)}</span>
+                    <span className="fmsrp">MSRP {money(v.retailPrice, currency)}</span>
+                  </span>
+                )}
                 <input
                   className="fqty"
                   type="number"

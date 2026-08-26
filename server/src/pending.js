@@ -33,11 +33,15 @@ function sanitizeCustomer(c = {}) {
   };
 }
 
-export function createPendingRow({ source, repEmail, repName, customer, lines, notes }) {
+export function createPendingRow({ source, intent, repEmail, repName, customer, lines, notes }) {
   const row = {
     id: crypto.randomUUID(),
     status: 'pending',
     source: ['qr', 'link', 'kiosk'].includes(source) ? source : 'kiosk',
+    // 'quote' = came off a price-free lookbook, so the customer never saw a price and the
+    // quantities are an expression of interest, not a commitment. The rep prices it and quotes
+    // back. 'order' = the customer saw wholesale pricing and is placing the order.
+    intent: intent === 'quote' ? 'quote' : 'order',
     repEmail: repEmail || null,
     repName: repName || null,
     customer: sanitizeCustomer(customer),
@@ -58,9 +62,9 @@ export async function savePending(row) {
     return row;
   }
   await q(
-    `INSERT INTO pending_orders (id, status, source, rep_email, rep_name, customer, lines, notes, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [row.id, row.status, row.source, row.repEmail, row.repName, row.customer, JSON.stringify(row.lines), row.notes, row.createdAt]
+    `INSERT INTO pending_orders (id, status, source, intent, rep_email, rep_name, customer, lines, notes, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [row.id, row.status, row.source, row.intent, row.repEmail, row.repName, row.customer, JSON.stringify(row.lines), row.notes, row.createdAt]
   );
   return row;
 }
@@ -70,6 +74,7 @@ function fromDb(r) {
     id: r.id,
     status: r.status,
     source: r.source,
+    intent: r.intent === 'quote' ? 'quote' : 'order', // rows predating quote requests are orders
     repEmail: r.rep_email,
     repName: r.rep_name,
     customer: r.customer || {},
