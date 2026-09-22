@@ -5,6 +5,7 @@ import { Lookbook, ReviewSheet } from './src/components/Lookbook.jsx';
 import { OrderFormView } from './src/components/OrderFormView.jsx';
 import { ShareFormSheet } from './src/components/CustomerPicker.jsx';
 import { BlankFormDoc, OrderCopyDoc, RFQDoc } from './src/components/PrintDocs.jsx';
+import { keepAppFresh } from './src/sw-update.js';
 
 const catalog = JSON.parse(fs.readFileSync('/tmp/catalog.json', 'utf8'));
 const availability = {};
@@ -438,5 +439,68 @@ const okSheet = check('PACK at-minimum quiet', () =>
   })
 );
 if (okSheet && /min-warn/.test(okSheet)) fail('MIN FAIL: a line AT its minimum is flagged anyway');
+
+// ---------------------------------------------------------------------------------------
+// STALE-BUILD DELIVERY — the case pack column shipped and did not reach the live app because
+// the service worker kept serving its precached shell. keepAppFresh() reloads when a new worker
+// takes control. A reload LOOP in a rep's hands mid-order would be far worse than a stale
+// build, so both guards are pinned here.
+const fakeNav = (hasController) => {
+  const listeners = {};
+  let updates = 0;
+  return {
+    nav: {
+      serviceWorker: {
+        controller: hasController ? {} : null,
+        addEventListener: (e, fn) => { (listeners[e] ||= []).push(fn); },
+        getRegistration: () => Promise.resolve({ update: () => { updates += 1; } }),
+      },
+    },
+    fire: (e) => (listeners[e] || []).forEach((fn) => fn()),
+    updates: () => updates,
+  };
+};
+
+// 1. First install: no previous controller, page is already running the code it downloaded.
+{
+  const f = fakeNav(false);
+  let reloads = 0;
+  keepAppFresh(f.nav, () => { reloads += 1; }, () => {}, () => {});
+  f.fire('controllerchange');
+  if (reloads !== 0) fail(`SW FAIL: first install reloaded the page ${reloads}x (pointless flash)`);
+  else console.log('SW first-install quiet OK');
+}
+
+// 2. A real update: exactly one reload, however many times control changes.
+{
+  const f = fakeNav(true);
+  let reloads = 0;
+  keepAppFresh(f.nav, () => { reloads += 1; }, () => {}, () => {});
+  f.fire('controllerchange');
+  f.fire('controllerchange');
+  f.fire('controllerchange');
+  if (reloads !== 1) fail(`SW FAIL: ${reloads} reloads on update — 1 expected, >1 is a reload LOOP`);
+  else console.log('SW update reloads exactly once OK');
+}
+
+// 3. It actually asks whether a new build exists, on focus and on a timer.
+{
+  const f = fakeNav(true);
+  const wired = [];
+  let timer = null;
+  keepAppFresh(f.nav, () => {}, (e) => wired.push(e), (fn, ms) => { timer = ms; });
+  if (!wired.includes('focus')) fail('SW FAIL: never re-checks for a new build when the tab regains focus');
+  if (!timer) fail('SW FAIL: no periodic update check for a device left open all day');
+  else if (timer > 6 * 60 * 60 * 1000) fail(`SW FAIL: update check every ${timer}ms is too rare to help a rep`);
+  else console.log('SW update checks wired OK');
+}
+
+// 4. A browser with no service worker must not throw on boot.
+{
+  let threw = null;
+  try { keepAppFresh({}, () => {}, () => {}, () => {}); } catch (e) { threw = e; }
+  if (threw) fail(`SW FAIL: boot throws where service workers are unsupported: ${threw.message}`);
+  else console.log('SW no-support boot OK');
+}
 
 process.exit(failed ? 1 : 0);
