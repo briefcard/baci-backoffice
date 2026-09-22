@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { unitWholesalePrice, money } from '../domain.js';
+import { unitWholesalePrice, money, packSize, packLabel, pieces, moqOf, belowMinimum } from '../domain.js';
 import { submitOrQueue } from '../formSections.js';
 
 const BRAND_LOGO = 'https://bacimilanousa.com/cdn/shop/files/Baci_Logo_-_White.png?height=108';
@@ -84,6 +84,9 @@ function GalleryCard({ product, pct, currency, onZoom, availability, qty, setQ, 
   const v0 = product.variants[0];
   const multi = product.variants.length > 1;
   const hearts = priceFree && setQ;
+  // Pack/minimum are variant-level, but on a card the first variant speaks for the piece: every
+  // colourway of one product ships the same way.
+  const moq = v0 ? moqOf(v0) : 0;
   return (
     <figure className={`lb-card${priceFree ? ' lb-card-plain' : ''}`}>
       {gallery.length ? (
@@ -107,6 +110,8 @@ function GalleryCard({ product, pct, currency, onZoom, availability, qty, setQ, 
       )}
       <figcaption>
         <span className="lb-title">{product.title}</span>
+        {/* What ONE unit contains. Shown price-free too — it describes the goods, not the deal. */}
+        {v0 && <span className="lb-pack">{packLabel(v0)}{moq > 0 ? ` · min ${moq}` : ''}</span>}
         {!priceFree && (
           <span className="lb-price">
             {money(v0 ? unitWholesalePrice(v0, pct) : 0, currency)}{' '}
@@ -142,6 +147,11 @@ function GalleryCard({ product, pct, currency, onZoom, availability, qty, setQ, 
                 <span className="lb-var-label">
                   {multi ? (v.title && v.title !== 'Default Title' ? v.title : v.sku || '—') : 'Qty'}
                   {multi && <small className="lb-var-price"> {money(unitWholesalePrice(v, pct), currency)}</small>}
+                  {/* Units -> pieces, live: "3 = 18 pieces". The customer types boxes; this is
+                      the only place they learn what that means before the order is placed. */}
+                  {packSize(v) > 1 && entered > 0 && (
+                    <small className="lb-var-pieces">= {pieces(v, entered)} pieces</small>
+                  )}
                   {out && <em className="flater">deposit · ~{lead}</em>}
                   {!out && over > 0 && <em className="flater">+{over} on deposit</em>}
                 </span>
@@ -223,6 +233,7 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
     return out;
   }, [shoppable, catalog, qty]);
   const unitCount = chosen.reduce((s, c) => s + c.qty, 0);
+  const pieceCount = chosen.reduce((n, c) => n + pieces(c.variant, c.qty), 0);
 
   return (
     <div className="lookbook">
@@ -339,6 +350,9 @@ export function Lookbook({ catalog, onStart, cta = 'Start your order ▸', avail
         <button className="cartbar lb-bar" onClick={() => setReview(true)}>
           <span>
             {unitCount} unit{unitCount !== 1 ? 's' : ''} · {chosen.length} item{chosen.length !== 1 ? 's' : ''}
+            {/* Last place the number is seen before submitting: if any line is a set, the bar
+                must not leave "units" to be read as "pieces". */}
+            {pieceCount !== unitCount && ` · ${pieceCount} pieces`}
           </span>
           <span>Review &amp; submit ▸</span>
         </button>
@@ -411,6 +425,7 @@ export function ReviewSheet({ chosen, availability, currency, mode, code, onBack
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const short = belowMinimum(chosen, (c) => c.variant);
 
   const submit = async () => {
     if (!company.trim() && !contact.trim()) {
@@ -472,11 +487,17 @@ export function ReviewSheet({ chosen, availability, currency, mode, code, onBack
                         value={c.qty}
                         onChange={(e) => setQ(c.variant.id, Math.max(1, Math.floor(Number(e.target.value) || 1)))}
                       />{' '}
-                      <span className="muted">qty (optional)</span>
+                      <span className="muted">
+                        qty (optional)
+                        {packSize(c.variant) > 1 ? ` · ${packLabel(c.variant).toLowerCase()}` : ''}
+                      </span>
                     </label>
                   ) : (
                     <div className="cs">
                       {c.variant.sku} · qty {c.qty}
+                      {packSize(c.variant) > 1 && (
+                        <span className="cs-pack"> · {pieces(c.variant, c.qty)} pieces</span>
+                      )}
                       {dep > 0 && (
                         <span className="cs-dep">
                           {now > 0 ? ` — ${now} now · ${dep} on deposit` : ' — on deposit (ships when available)'}
@@ -499,6 +520,28 @@ export function ReviewSheet({ chosen, availability, currency, mode, code, onBack
                 as soon as stock arrives — so nothing gets oversold. Your rep will go over the details.
               </div>
             )}
+
+          {/* Minimums are stated, not enforced — the order still goes through and the rep
+              confirms. A quote request is only an enquiry, so it is left alone entirely. */}
+          {!quote && short.length > 0 && (
+            <div className="min-warn">
+              <strong>
+                {short.length} item{short.length !== 1 ? 's' : ''} below the minimum order quantity
+              </strong>
+              {short.map(({ line, qty, min }) => (
+                <div className="min-row" key={line.variant.id}>
+                  <span>{line.product.title}</span>
+                  <span>
+                    qty {qty} · min {min}
+                  </span>
+                  <button className="link" onClick={() => setQ(line.variant.id, min)}>
+                    Raise to {min}
+                  </button>
+                </div>
+              ))}
+              <div className="min-note">You can send it as is — your rep will confirm.</div>
+            </div>
+          )}
 
           <div className="muted small form-note">
             {quote

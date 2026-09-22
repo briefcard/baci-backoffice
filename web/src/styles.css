@@ -131,6 +131,19 @@ main { padding: 14px 14px 64px; display: grid; gap: 12px; }
 .vmain { grid-column: 1; grid-row: 1; min-width: 0; }
 .vtitle { font-size: 15px; font-weight: 600; line-height: 1.25; }
 .vsku { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 1px; }
+.vpack { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.vpack span { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
+.vpack .vpack-n { background: #eef0ff; color: #2B1AFE; }
+.vpack .vmoq { background: #f0f0f2; color: var(--muted); }
+.cs-pack { color: var(--muted); }
+
+/* Under-minimum lines: stated, with a one-tap fix. Deliberately not an error colour — nothing
+   is blocked, the order still goes through. */
+.min-warn { border: 1px solid var(--line); border-left: 3px solid #2B1AFE; padding: 10px 12px; margin: 10px 0; display: grid; gap: 6px; }
+.min-warn > strong { font-size: 13px; }
+.min-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--muted); }
+.min-row > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.min-note { font-size: 11.5px; color: var(--muted); }
 
 .vprice { grid-column: 1; grid-row: 2; margin-top: 4px; display: flex; gap: 8px; align-items: baseline; }
 .vprice .b2b { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -312,6 +325,9 @@ main { padding-bottom: 96px; }
 .fsku { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
 .fvtitle { font-size: 13px; }
 .flater { font-size: 11px; background: #fff4d6; color: var(--low); border-radius: 999px; padding: 2px 8px; font-weight: 700; }
+/* Pack / minimum / running piece count on a form row — factual, not a warning, so no amber. */
+.fpack, .fmoq { font-size: 11px; background: #f0f0f2; color: var(--muted); border-radius: 999px; padding: 2px 8px; font-weight: 700; }
+.fpieces { font-size: 11px; color: var(--ink); font-weight: 700; }
 .fprice { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fqty { width: 64px; padding: 10px 6px; text-align: center; font-size: 17px; font-weight: 700; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; }
 .fqty:focus { border-color: var(--ink); outline: none; }
@@ -451,6 +467,11 @@ main { padding-bottom: 96px; }
 .pf-th-price { text-align: right; }
 .pf-msrp { font-weight: 400; color: #555; }
 .pf-th-qty, .pf-td-qty { text-align: center; }
+/* Pack / minimum column — the qty box counts units, this says what a unit is. */
+.pf-th-pack, .pf-td-pack { text-align: center; width: 52px; }
+.pf-pack { font-weight: 800; font-size: 11px; }
+.pf-moq { font-size: 9px; color: #666; letter-spacing: .03em; }
+.pf-pieces { font-size: 9px; font-weight: 500; color: #555; }
 .pf-qtybox { display: inline-block; width: 44px; height: 26px; border: 1.3px solid #000; border-radius: 3px; }
 .pf-fillline { display: inline-block; min-width: 74px; border-bottom: 1.2px solid #000; font-size: 11px; color: #555; padding: 0 2px 1px; text-align: left; }
 .pf-qty-num { font-weight: 800; font-size: 13px; }
@@ -587,6 +608,8 @@ main { padding-bottom: 96px; }
 .lb-title { font-size: 12px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; line-height: 1.4; }
 .lb-price { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
 .lb-price small { font-weight: 500; font-size: 11px; letter-spacing: .05em; color: var(--muted); text-transform: uppercase; }
+/* What one unit contains — sits under the title, in the caption's own quiet register. */
+.lb-pack { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 
 .lb-thumbs { display: flex; gap: 6px; padding: 8px 2px 0; }
 .lb-thumbs img { width: 42px; height: 42px; object-fit: contain; background: #f4f4f5; border-radius: 0; opacity: .5; cursor: pointer; border: 1px solid transparent; }
@@ -649,6 +672,7 @@ main { padding-bottom: 96px; }
 .lb-var { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .lb-var-label { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lb-var-label .lb-var-price { font-weight: 700; color: var(--ink); letter-spacing: 0; }
+.lb-var-label .lb-var-pieces { font-weight: 700; color: var(--ink); letter-spacing: 0; }
 .lb-var .flater { font-style: normal; border-radius: 0; }
 .lb-qty { width: 62px; flex-shrink: 0; padding: 10px 6px; border: 1px solid var(--line); border-radius: 0; font-size: 15px; text-align: center; background: #fff; }
 .lb-qty:focus { outline: none; border-color: var(--ink); }

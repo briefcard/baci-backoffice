@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { unitWholesalePrice, money } from '../domain.js';
+import { unitWholesalePrice, money, packSize, packLabel, pieces, moqOf } from '../domain.js';
 import { buildFormSections } from '../formSections.js';
 import { api } from '../api.js';
 import { ImageLightbox, ReviewSheet } from './Lookbook.jsx';
@@ -57,6 +57,7 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
     return out;
   }, [sections, qty]);
   const unitCount = chosen.reduce((s, c) => s + c.qty, 0);
+  const pieceCount = chosen.reduce((n, c) => n + pieces(c.variant, c.qty), 0);
 
   const setQ = (variantId, value) => {
     const n = Math.max(0, Math.floor(Number(value) || 0));
@@ -178,6 +179,9 @@ export function OrderFormView({ snapshot, config, availability, mode, me, code, 
         <button className="cartbar form-bar" onClick={() => setReview(true)}>
           <span>
             {unitCount} unit{unitCount !== 1 ? 's' : ''} · {chosen.length} item{chosen.length !== 1 ? 's' : ''}
+            {/* Last number before Review: on a form holding a set, "units" must not read as
+                "pieces" (same rule as the lookbook bar). */}
+            {pieceCount !== unitCount && ` · ${pieceCount} pieces`}
           </span>
           <span>Review &amp; submit ▸</span>
         </button>
@@ -230,6 +234,13 @@ function FormRow({ product, availability, pct, currency, qty, setQ, lead }) {
                 <div className="fvar-main">
                   <span className="fsku">{v.sku || '—'}</span>
                   {v.title && v.title !== 'Default Title' && <span className="fvtitle">{v.title}</span>}
+                  {/* The qty box counts UNITS; for a set that is not the same as pieces. Say the
+                      pack on every row, then the running piece count once a number is typed. */}
+                  {packSize(v) > 1 && <span className="fpack">{packLabel(v)}</span>}
+                  {moqOf(v) > 0 && <span className="fmoq">min {moqOf(v)}</span>}
+                  {packSize(v) > 1 && entered > 0 && (
+                    <span className="fpieces">= {pieces(v, entered)} pieces</span>
+                  )}
                   {out && <span className="flater">deposit · ~{lead}</span>}
                   {!out && over > 0 && <span className="flater">+{over} on deposit</span>}
                 </div>

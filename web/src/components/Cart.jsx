@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { cart, useCart } from '../cart.js';
-import { money, maxAdditionalPct, round2, splitByAvailability } from '../domain.js';
+import { money, maxAdditionalPct, round2, splitByAvailability, packSize, packLabel, pieces, moqOf, belowMinimum } from '../domain.js';
 import { api } from '../api.js';
 import { CustomerPicker } from './CustomerPicker.jsx';
 import { PrintDoc, OrderCopyDoc } from './PrintDocs.jsx';
@@ -19,6 +19,8 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
   const depositTiers = config?.depositPct || { new_customer: 40, repeat_customer: 30 };
 
   const { ready, backorder } = useMemo(() => splitByAvailability(items, availability), [items, availability]);
+
+  const short = belowMinimum(items);
   const readySubtotal = round2(sum(ready));
   const backorderSubtotal = round2(sum(backorder));
   const combinedSubtotal = round2(readySubtotal + backorderSubtotal);
@@ -153,6 +155,9 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
           <div className="ct">{i.title}</div>
           <div className="cs">
             {i.sku} · {money(i.unit, currency)} ea
+            {packSize(i) > 1 && (
+              <span className="cs-pack"> · {packLabel(i)} = {pieces(i, i.qty)} pcs</span>
+            )}
           </div>
         </div>
         <div className="qty">
@@ -258,6 +263,28 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
               {needsAddressConfirm && (
                 <div className="addr-warn">
                   No shipping address on file — the office will need it before this can be invoiced or shipped.
+                </div>
+              )}
+
+              {/* Under-minimum lines are SHOWN, never blocking (owner's rule): a rep on a floor
+                  has to be able to take the order, and the office resolves a short line after. */}
+              {short.length > 0 && (
+                <div className="min-warn">
+                  <strong>
+                    {short.length} line{short.length !== 1 ? 's' : ''} under the minimum
+                  </strong>
+                  {short.map(({ line, qty, min }) => (
+                    <div className="min-row" key={line.variantId}>
+                      <span>{line.sku || line.title}</span>
+                      <span>
+                        qty {qty} · min {min}
+                      </span>
+                      <button className="link" onClick={() => cart.setQty(line.variantId, min)}>
+                        Raise to {min}
+                      </button>
+                    </div>
+                  ))}
+                  <div className="min-note">You can still submit — the office will confirm.</div>
                 </div>
               )}
 

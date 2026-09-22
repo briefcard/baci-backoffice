@@ -40,6 +40,46 @@ export function maxAdditionalPct(wholesaleSubtotal, tiers) {
   return pct;
 }
 
+// ---- Case pack / MOQ ----
+// A wholesale qty box counts SELLABLE UNITS, and for a "Set of 6" one unit is six pieces. Not
+// saying so on the form is the single most expensive ambiguity on a B2B order: the customer
+// reads "6" as six plates, the warehouse ships thirty-six. Every surface that shows a qty box
+// or prints a line must therefore also say what one unit contains.
+export function packSize(variant) {
+  const n = Math.floor(Number(variant?.casePack) || 0);
+  return n > 1 ? n : 1;
+}
+
+// "Set of 6" / "Sold individually" — the human sentence for one unit.
+export function packLabel(variant) {
+  const n = packSize(variant);
+  return n > 1 ? `Set of ${n}` : 'Sold individually';
+}
+
+// Pieces behind a quantity of units (qty 2 of a set of 6 = 12 pieces).
+export function pieces(variant, qty) {
+  return packSize(variant) * Math.max(0, Math.floor(Number(qty) || 0));
+}
+
+// Minimum order quantity in UNITS. 0 = no minimum worth showing (unset, or a meaningless 1).
+export function moqOf(variant) {
+  const n = Math.floor(Number(variant?.moq) || 0);
+  return n > 1 ? n : 0;
+}
+
+// Lines ordered below their minimum. Owner's rule (2026-09-21): SHOW these, never block on them
+// — a rep mid-conversation on a tradeshow floor must always be able to capture the order, and
+// the office can sort a short line out afterwards. Callers render it; nothing here disables.
+export function belowMinimum(lines, variantOf = (l) => l) {
+  const out = [];
+  for (const l of lines || []) {
+    const min = moqOf(variantOf(l));
+    const qty = Math.floor(Number(l.qty) || 0);
+    if (min > 0 && qty > 0 && qty < min) out.push({ line: l, qty, min });
+  }
+  return out;
+}
+
 export function money(n, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(n) || 0);
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { unitWholesalePrice, money, round2 } from '../domain.js';
+import { unitWholesalePrice, money, round2, packSize, packLabel, pieces, moqOf } from '../domain.js';
 import { buildFormSections } from '../formSections.js';
 
 // Printable documents, rendered as a full-screen PREVIEW overlay (portaled to <body>, outside
@@ -104,6 +104,7 @@ export function BlankFormDoc({ snapshot, config }) {
                     <th className="pf-th-img" />
                     <th>Item</th>
                     <th className="pf-th-sku">SKU</th>
+                    <th className="pf-th-pack">Pack / min</th>
                     <th className="pf-th-price">MSRP</th>
                     <th className="pf-th-price">Wholesale</th>
                     <th className="pf-th-qty">Qty</th>
@@ -122,6 +123,12 @@ export function BlankFormDoc({ snapshot, config }) {
                           <div className="pf-type">{(p.materials || [])[0] || ''}</div>
                         </td>
                         <td className="pf-td-sku">{v.sku || '—'}</td>
+                        {/* Prices below are PER UNIT, and for a set one unit is the whole set —
+                            so the pack has to sit right beside them or the form reads wrong. */}
+                        <td className="pf-td-pack">
+                          <div className="pf-pack">{packSize(v) > 1 ? `×${packSize(v)}` : 'each'}</div>
+                          {moqOf(v) > 0 && <div className="pf-moq">min {moqOf(v)}</div>}
+                        </td>
                         <td className="pf-td-price pf-msrp">{money(v.retailPrice, currency)}</td>
                         <td className="pf-td-price">{money(unitWholesalePrice(v, pct), currency)}</td>
                         <td className="pf-td-qty">
@@ -138,8 +145,10 @@ export function BlankFormDoc({ snapshot, config }) {
       ))}
 
       <div className="pf-foot">
-        Wholesale order form — pricing per unit. Totals, availability, and volume pricing are
-        confirmed by your Baci Milano sales rep.
+        Wholesale order form — pricing per unit. <strong>Pack</strong> is what one unit contains:
+        &ldquo;&times;6&rdquo; means one unit is a set of six pieces, so a quantity of 2 is 12
+        pieces. <strong>Min</strong> is the minimum quantity per item. Totals, availability, and
+        volume pricing are confirmed by your Baci Milano sales rep.
       </div>
     </>
   );
@@ -152,6 +161,11 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
   const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const rows = (lines || []).filter((l) => (l.expected || 0) > 0);
   const total = rows.reduce((n, l) => n + l.expected, 0);
+  const packOf = (l) => {
+    const v = skuIndex?.get((l.sku || '').toLowerCase())?.variant;
+    return v ? packSize(v) : 1;
+  };
+  const totalPieces = rows.reduce((n, l) => n + pieces({ casePack: packOf(l) }, l.expected), 0);
   return (
     <>
       <div className="pf-copyhead">
@@ -170,6 +184,7 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
               <th className="pf-th-img" />
               <th>Item</th>
               <th className="pf-th-sku">SKU</th>
+              <th className="pf-th-pack">Pack</th>
               <th className="pf-th-qty">Qty</th>
               <th className="pf-th-price">Unit cost*</th>
               <th className="pf-th-price">Total*</th>
@@ -177,7 +192,11 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
           </thead>
           <tbody>
             {rows.map((l) => {
-              const p = skuIndex?.get((l.sku || '').toLowerCase())?.product;
+              const hit = skuIndex?.get((l.sku || '').toLowerCase());
+              const p = hit?.product;
+              // Our case pack, stated so the supplier confirms or corrects it against their own
+              // cartoning — the terms below ask them to do exactly that.
+              const pack = hit?.variant ? packSize(hit.variant) : 1;
               return (
                 <tr key={l.id || l.sku}>
                   <td className="pf-td-img">{p?.image ? <img src={p.image} alt="" /> : null}</td>
@@ -185,7 +204,13 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
                     <div className="pf-item">{l.title || p?.title || ''}</div>
                   </td>
                   <td className="pf-td-sku">{l.sku}</td>
-                  <td className="pf-td-qty pf-qty-num">{l.expected}</td>
+                  <td className="pf-td-pack">
+                    <div className="pf-pack">{pack > 1 ? `×${pack}` : 'each'}</div>
+                  </td>
+                  <td className="pf-td-qty pf-qty-num">
+                    {l.expected}
+                    {pack > 1 && <div className="pf-pieces">{pieces(hit.variant, l.expected)} pcs</div>}
+                  </td>
                   <td className="pf-td-price"><span className="pf-fillline">$</span></td>
                   <td className="pf-td-price"><span className="pf-fillline">$</span></td>
                 </tr>
@@ -194,7 +219,10 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
           </tbody>
         </table>
         <div className="pf-meta" style={{ marginTop: 8 }}>
-          <div>Total units requested: {total} across {rows.length} item{rows.length !== 1 ? 's' : ''}</div>
+          <div>
+            Total units requested: {total} across {rows.length} item{rows.length !== 1 ? 's' : ''}
+            {totalPieces !== total && ` — ${totalPieces} pieces at the pack sizes shown`}
+          </div>
         </div>
       </section>
 
@@ -209,7 +237,7 @@ export function RFQDoc({ reference, origin, notes, lines, skuIndex }) {
         <div className="pf-block-head">TERMS &amp; CONDITIONS</div>
         <ul>
           <li>* Unit cost and total columns are to be completed by the supplier — please quote in EUR or USD, stating currency and incoterms (e.g. FOB port).</li>
-          <li>Please confirm unit pricing, availability, packing (units per carton), and the earliest ship date / ETA for the quantities above.</li>
+          <li>Please confirm unit pricing, availability, packing (units per carton), and the earliest ship date / ETA for the quantities above. Where a pack size is shown, quantities are in those packs — please confirm it matches your cartoning.</li>
           <li>Quantities are requested amounts and become binding only upon our written purchase-order confirmation.</li>
           <li>Please reply referencing our RFQ number above.</li>
         </ul>
@@ -247,10 +275,16 @@ function LinesTable({ lines, currency, showOrigin }) {
             <td className="pf-td-img">{l.image ? <img src={l.image} alt="" /> : null}</td>
             <td>
               <div className="pf-item">{l.title}</div>
+              {/* A quote a customer signs off on must state what a line's quantity buys: the
+                  unit price beside it is the price of ONE pack, not of one piece. */}
+              {packSize(l) > 1 && <div className="pf-type">{packLabel(l)}</div>}
               {showOrigin && l.origin && <div className="pf-type">Made in {l.origin}</div>}
             </td>
             <td className="pf-td-sku">{l.sku || '—'}</td>
-            <td className="pf-td-qty pf-qty-num">{l.qty}</td>
+            <td className="pf-td-qty pf-qty-num">
+              {l.qty}
+              {packSize(l) > 1 && <div className="pf-pieces">{pieces(l, l.qty)} pcs</div>}
+            </td>
             <td className="pf-td-price pf-msrp">{l.msrp != null ? money(l.msrp, currency) : '—'}</td>
             <td className="pf-td-price">{money(l.unit, currency)}</td>
             <td className="pf-td-price">{money(round2(l.unit * l.qty), currency)}</td>

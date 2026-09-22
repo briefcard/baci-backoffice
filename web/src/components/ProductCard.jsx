@@ -1,5 +1,5 @@
 import React from 'react';
-import { unitWholesalePrice, stockState, stateRank, money } from '../domain.js';
+import { unitWholesalePrice, stockState, stateRank, money, packSize, packLabel, moqOf } from '../domain.js';
 import { cart, useCart } from '../cart.js';
 
 function fmtEta(d) {
@@ -37,6 +37,14 @@ export function ProductCard({ product, availability, config, productIndex }) {
         <div className="vmain">
           <div className="vtitle">{v.title && v.title !== 'Default Title' ? v.title : product.title}</div>
           <div className="vsku">{v.sku || '—'}</div>
+          {/* Stock and price below are both PER UNIT. For a set that unit is six pieces, and a
+              rep quoting from this card needs to know that before they answer a buyer. */}
+          {(packSize(v) > 1 || moqOf(v) > 0) && (
+            <div className="vpack">
+              {packSize(v) > 1 && <span className="vpack-n">{packLabel(v)}</span>}
+              {moqOf(v) > 0 && <span className="vmoq">min {moqOf(v)}</span>}
+            </div>
+          )}
           {state !== 'in' && (
             <div className="oos">
               {incoming > 0 ? (
@@ -116,6 +124,10 @@ function AddControl({ variant, product, unit, inCart }) {
             unit,
             msrp: variant.retailPrice,
             origin: product.countryOfOrigin,
+            // Carried onto the line so the printed quote can say "Set of 6 / 12 pcs" without
+            // re-joining against the catalog (the print doc renders from the cart alone).
+            casePack: variant.casePack,
+            moq: variant.moq,
           })
         }
       >

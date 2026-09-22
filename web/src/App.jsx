@@ -309,6 +309,8 @@ function Shell({ me }) {
         unit: unitWholesalePrice(variant, pct),
         msrp: variant.retailPrice,
         origin: product.countryOfOrigin,
+        casePack: variant.casePack,
+        moq: variant.moq,
         qty: Number(l.quantity) || 1,
       });
     }

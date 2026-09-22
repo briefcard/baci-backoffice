@@ -1,9 +1,10 @@
 import { renderToString } from 'react-dom/server';
 import React from 'react';
 import fs from 'node:fs';
-import { Lookbook } from './src/components/Lookbook.jsx';
+import { Lookbook, ReviewSheet } from './src/components/Lookbook.jsx';
 import { OrderFormView } from './src/components/OrderFormView.jsx';
 import { ShareFormSheet } from './src/components/CustomerPicker.jsx';
+import { BlankFormDoc, OrderCopyDoc, RFQDoc } from './src/components/PrintDocs.jsx';
 
 const catalog = JSON.parse(fs.readFileSync('/tmp/catalog.json', 'utf8'));
 const availability = {};
@@ -227,5 +228,215 @@ check('SHARE with-customer', () =>
     onClose: () => {},
   })
 );
+
+// ---------------------------------------------------------------------------------------
+// CASE PACK / MOQ — a "Set of 6" priced per unit is the most expensive ambiguity on a
+// wholesale form: the buyer reads 6 as six plates, the warehouse ships thirty-six. Every
+// surface with a qty box or a printed line must state what one unit contains, so each one
+// is asserted here rather than eyeballed once.
+const fail = (msg) => {
+  failed = true;
+  console.log(msg);
+};
+// Text inside every element carrying `cls`. Needed because a bare /Set of 6/ also matches the
+// product TITLE and a bare /30/ matches the phone number in the footer — both of which let a
+// removed feature pass. (SSR splits adjacent text nodes with <!-- -->; strip those first.)
+const textIn = (html, cls) =>
+  // Backreference the tag name so the capture ends at the element's OWN closing tag — stopping
+  // at the first `</` only read its first child, which silently passed a real assertion.
+  [...html.matchAll(new RegExp(`<(\\w+)[^>]*class="[^"]*\\b${cls}\\b[^"]*"[^>]*>(.*?)</\\1>`, 'gs'))].map((m) =>
+    m[2].replace(/<!--\s*-->/g, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  );
+const someIn = (html, cls, re) => textIn(html, cls).some((t) => re.test(t));
+const setProduct = catalog.products.find((p) => p.variants.some((v) => (v.casePack || 1) > 1));
+const singleProduct = catalog.products.find((p) => p.variants.every((v) => (v.casePack || 1) === 1));
+if (!setProduct || !singleProduct) {
+  fail('PACK FIXTURE FAIL: need both a set and a single in /tmp/catalog.json to test against');
+}
+const setVariant = setProduct?.variants.find((v) => (v.casePack || 1) > 1);
+const packOf = (v) => v.casePack;
+
+// 1. Lookbook card states the pack, priced AND price-free (it describes goods, not a deal).
+for (const [name, cat] of [['priced', catalog], ['price-free', free]]) {
+  const html = check(`PACK lookbook ${name}`, () =>
+    React.createElement(Lookbook, {
+      catalog: cat,
+      onStart: () => {},
+      availability,
+      qty: { [setVariant.id]: 3 },
+      onQty: () => {},
+      mode: 'public',
+      code: 'x',
+      onReset: () => {},
+    })
+  );
+  if (!html) continue;
+  if (!/lb-pack/.test(html)) fail(`PACK lookbook ${name} FAIL: no pack line on the cards`);
+  if (!someIn(html, 'lb-pack', new RegExp(`^Set of ${packOf(setVariant)}\\b`)))
+    fail(`PACK lookbook ${name} FAIL: no card's pack line says "Set of ${packOf(setVariant)}"`);
+  if (!someIn(html, 'lb-pack', /^Sold individually/))
+    fail(`PACK lookbook ${name} FAIL: single-piece cards do not say so`);
+}
+
+// 2. Priced lookbook turns units into pieces live, so nobody types 3 meaning 3 plates.
+const packPriced = check('PACK lookbook pieces', () =>
+  React.createElement(Lookbook, {
+    catalog,
+    onStart: () => {},
+    availability,
+    qty: { [setVariant.id]: 3 },
+    onQty: () => {},
+    mode: 'public',
+    code: 'x',
+    onReset: () => {},
+  })
+);
+if (packPriced) {
+  // (SSR splits adjacent text nodes with <!-- -->, so match the marker and the number apart.)
+  if (!someIn(packPriced, 'lb-var-pieces', new RegExp(`=\\s*${packOf(setVariant) * 3} pieces`)))
+    fail(`PACK lookbook FAIL: 3 units of a set of ${packOf(setVariant)} never resolves to ${packOf(setVariant) * 3} pieces`);
+}
+
+// 2b. The summary bar is the last number seen before submit — it must not let "units" read
+//     as "pieces" on a cart that contains a set.
+if (packPriced) {
+  if (!someIn(packPriced, 'lb-bar', new RegExp(`${packOf(setVariant) * 3} pieces`, 'i')))
+    fail('PACK lookbook FAIL: summary bar totals units without saying how many pieces that is');
+}
+
+// 3. Kiosk order form row: pack chip, minimum, and the piece count.
+const packForm = check('PACK order form', () =>
+  React.createElement(OrderFormView, {
+    snapshot: catalog,
+    config: catalog.config,
+    availability,
+    mode: 'public',
+    code: 'x',
+    qty: { [setVariant.id]: 2 },
+    onQty: () => {},
+  })
+);
+if (packForm) {
+  if (!someIn(packForm, 'fpack', new RegExp(`^Set of ${packOf(setVariant)}\\b`)))
+    fail('PACK form FAIL: no pack stated on the form rows');
+  if (!someIn(packForm, 'fmoq', /^min \d+/)) fail('PACK form FAIL: no minimum on the form rows');
+  if (!someIn(packForm, 'fpieces', new RegExp(`=\\s*${packOf(setVariant) * 2} pieces`)))
+    fail('PACK form FAIL: no live piece count on a typed quantity');
+}
+
+// 3b. The ORDER FORM's own summary bar (the surface a shared link actually opens) must also
+//     resolve units to pieces — same rule as the lookbook bar, different component.
+const packFormBar = check('PACK order form bar', () =>
+  React.createElement(OrderFormView, {
+    snapshot: catalog,
+    config: catalog.config,
+    availability,
+    mode: 'public',
+    code: 'x',
+    qty: { [setVariant.id]: 2 },
+    onQty: () => {},
+  })
+);
+if (packFormBar && !someIn(packFormBar, 'form-bar', new RegExp(`${packOf(setVariant) * 2} pieces`, 'i')))
+  fail('PACK form FAIL: the submit bar totals units without saying how many pieces that is');
+
+// 4. PRINTED blank order form — the paper the buyer writes on. Pack column + the sentence
+//    that explains what the qty box counts.
+const blank = check('PACK print blank form', () =>
+  React.createElement(BlankFormDoc, { snapshot: catalog, config: catalog.config })
+);
+if (blank) {
+  if (!/pf-th-pack/.test(blank)) fail('PACK print FAIL: blank form has no Pack column');
+  if (!someIn(blank, 'pf-pack', new RegExp(`^\u00d7${packOf(setVariant)}$`)))
+    fail('PACK print FAIL: blank form never prints a pack multiplier');
+  if (!someIn(blank, 'pf-pack', /^each$/))
+    fail('PACK print FAIL: blank form never marks a single-piece item as sold each');
+  if (!someIn(blank, 'pf-moq', /^min \d+/)) fail('PACK print FAIL: blank form never prints a minimum');
+  if (!/one unit is a set of six pieces/.test(blank))
+    fail('PACK print FAIL: blank form never explains what the qty column counts');
+}
+
+// 5. PRINTED customer quote — unit price beside a line means the price of one PACK.
+const line = {
+  variantId: setVariant.id,
+  title: setProduct.title,
+  sku: setVariant.sku,
+  qty: 2,
+  unit: 100,
+  msrp: 200,
+  casePack: setVariant.casePack,
+};
+const quote = check('PACK print quote', () =>
+  React.createElement(OrderCopyDoc, {
+    order: { lines: { ready: [line], backorder: [] }, customer: null, notes: '', appliedPct: 0, result: null },
+    currency: 'USD',
+  })
+);
+if (quote) {
+  if (!someIn(quote, 'pf-type', new RegExp(`^Set of ${packOf(setVariant)}$`)))
+    fail('PACK print FAIL: quote line does not say the line is a set');
+  if (!someIn(quote, 'pf-pieces', new RegExp(`^${packOf(setVariant) * 2} pcs$`)))
+    fail(`PACK print FAIL: 2 sets never resolves to ${packOf(setVariant) * 2} pcs on the quote`);
+}
+
+// 6. PRINTED supplier RFQ — our pack, for the supplier to confirm against their cartoning.
+const skuIndex = new Map([[String(setVariant.sku).toLowerCase(), { product: setProduct, variant: setVariant }]]);
+const rfq = check('PACK print RFQ', () =>
+  React.createElement(RFQDoc, {
+    reference: 'RFQ TEST',
+    origin: 'Baci Milano S.R.L.',
+    notes: '',
+    lines: [{ id: 1, sku: setVariant.sku, title: setProduct.title, expected: 5 }],
+    skuIndex,
+  })
+);
+if (rfq) {
+  if (!/pf-th-pack/.test(rfq)) fail('PACK print FAIL: RFQ has no Pack column');
+  if (!someIn(rfq, 'pf-pack', new RegExp(`^\u00d7${packOf(setVariant)}$`)))
+    fail('PACK print FAIL: RFQ line never states our pack size');
+  if (!someIn(rfq, 'pf-pieces', new RegExp(`^${packOf(setVariant) * 5} pcs$`)))
+    fail(`PACK print FAIL: RFQ line never resolves 5 packs to ${packOf(setVariant) * 5} pcs`);
+}
+
+// 7. Under-minimum lines are FLAGGED and never blocking (owner's rule, 2026-09-21). Asserted
+//    on the customer review sheet: the warning names the short line, offers the fix, and the
+//    submit button stays enabled.
+const shortSheet = check('PACK below-minimum flag', () =>
+  React.createElement(ReviewSheet, {
+    chosen: [{ product: setProduct, variant: { ...setVariant, moq: 3 }, qty: 1 }],
+    availability,
+    onBack: () => {},
+    onDone: () => {},
+    mode: 'public',
+    code: 'x',
+    setQ: () => {},
+    config: catalog.config,
+  })
+);
+if (shortSheet) {
+  if (!/min-warn/.test(shortSheet)) fail('MIN FAIL: a line under its minimum raises no flag');
+  if (!someIn(shortSheet, 'min-row', /qty 1 · min 3/))
+    fail('MIN FAIL: the flag does not name the quantity and the minimum');
+  if (!/Raise to/.test(shortSheet)) fail('MIN FAIL: the flag offers no one-tap fix');
+  // The whole point of "show, do not block": submit must still be live.
+  const submit = shortSheet.match(/<button class="primary"([^>]*)>/);
+  if (submit && /disabled/.test(submit[1]))
+    fail('MIN FAIL: submit is disabled on a short line — the owner asked for show, not block');
+}
+
+// A line AT its minimum must not be flagged (a warning that always fires is noise).
+const okSheet = check('PACK at-minimum quiet', () =>
+  React.createElement(ReviewSheet, {
+    chosen: [{ product: setProduct, variant: { ...setVariant, moq: 3 }, qty: 3 }],
+    availability,
+    onBack: () => {},
+    onDone: () => {},
+    mode: 'public',
+    code: 'x',
+    setQ: () => {},
+    config: catalog.config,
+  })
+);
+if (okSheet && /min-warn/.test(okSheet)) fail('MIN FAIL: a line AT its minimum is flagged anyway');
 
 process.exit(failed ? 1 : 0);
