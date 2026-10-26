@@ -305,6 +305,11 @@ export function OrderCopyDoc({ order, currency = 'USD', leadTime = '6–10 weeks
   const readySub = sum(ready);
   const backSub = sum(backorder);
   const subtotal = round2(readySub + backSub);
+  // What the same lines sell for at MSRP — the client's resale value, shown beside what they pay.
+  // A line saved before carts carried msrp has none; it is left out and the row says so.
+  const allLines = [...ready, ...backorder];
+  const retailTotal = round2(allLines.reduce((s, i) => s + (i.msrp != null ? i.msrp * i.qty : 0), 0));
+  const retailMissing = allLines.filter((i) => i.msrp == null).length;
   const afterVolume = round2(subtotal * (1 - appliedPct / 100));
   const backAfterVolume = round2(backSub * (1 - appliedPct / 100));
   const depositPct = result?.backorder?.depositPct ?? depositPctHint;
@@ -360,6 +365,15 @@ export function OrderCopyDoc({ order, currency = 'USD', leadTime = '6–10 weeks
       )}
 
       <div className="pf-totals">
+        {retailTotal > 0 && (
+          <div className="pf-msrp">
+            <span>
+              Retail Value Total (MSRP)
+              {retailMissing > 0 && ` · excl. ${retailMissing} item${retailMissing !== 1 ? 's' : ''} without MSRP`}
+            </span>
+            <span>{money(retailTotal, currency)}</span>
+          </div>
+        )}
         <div>
           <span>Subtotal</span>
           <strong>{money(subtotal, currency)}</strong>
