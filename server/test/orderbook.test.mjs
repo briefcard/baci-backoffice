@@ -126,3 +126,21 @@ test('balance = backorder total minus the deposit, only once the deposit is paid
   assert.deepEqual([paid.depositPaid, paid.credit, paid.balance], [true, 11186.28, 26101.32]);
   assert.equal(balancePreview({ backorderDraft: null }), null);
 });
+
+const { previewAvailability } = await import('../src/orderbook.js');
+
+test('availability check: stock first, then free incoming by arrival date, then none; reserves nothing', async () => {
+  const v = variant();
+  const soon = await ship(v, 20, { eta: '2027-01-10' });
+  const later = await ship(v, 20, { eta: '2027-04-01' });
+  await order(v, 15); // another client already holds 15 of the early shipment
+  const stockOf = () => 6;
+  const [line] = await previewAvailability([{ variantId: v, quantity: 40 }], stockOf);
+  assert.equal(line.inStock, 6);
+  assert.deepEqual(line.expected.map((e) => [e.quantity, e.shipment.reference]), [[5, soon.reference], [20, later.reference]]);
+  assert.equal(line.unavailable, 9);
+  assert.equal(line.state, 'partial');
+  // asking again gives the same answer: the check did not reserve anything
+  const [again] = await previewAvailability([{ variantId: v, quantity: 40 }], stockOf);
+  assert.equal(again.unavailable, 9);
+});

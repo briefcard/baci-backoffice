@@ -346,3 +346,9 @@ Phase 0 + first half of phase 1 of the procurement/tracking plan. Run `cd server
   - NOT verified against the live store (tested with a Shopify stand-in): custom line items on a
     draft, `draftOrderUpdate` with a FIXED_AMOUNT discount, and `nodes(ids:)` on DraftOrder.
     Verify with one real backorder before relying on it.
+
+- **Availability before confirming (2026-11-17, branch, NOT merged):** `POST /api/orders/availability`
+  (`previewAvailability` in `orderbook.js`) says, per cart line, units from stock, free incoming by
+  shipment + ETA, and units on no shipment; read-only. `Cart.jsx` shows it under backorder lines,
+  with in-stock substitutes. A shipment ETA is whatever is typed on the shipment (or sent by the
+  WhatsApp agent); nothing reads arrival dates from email automatically yet.
