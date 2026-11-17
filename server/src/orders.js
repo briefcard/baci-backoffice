@@ -11,6 +11,7 @@ import { cache } from './snapshot.js';
 import { round2, maxAdditionalPct } from './domain.js';
 import { resolveCustomer, clientAddressToInput } from './customers.js';
 import { cfg } from './config.js';
+import { recordOrder } from './orderbook.js';
 
 const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
 
@@ -28,7 +29,7 @@ mutation CreateDraft($input: DraftOrderInput!) {
 }`;
 
 function findVariant(variantId) {
-  for (const p of cache.products) for (const v of p.variants) if (v.id === variantId) return v;
+  for (const p of cache.products) for (const v of p.variants) if (v.id === variantId) return { ...v, productTitle: p.title };
   return null;
 }
 
@@ -53,19 +54,21 @@ function splitLines(lines) {
 // items (with the per-line wholesale discount applied) plus the wholesale subtotal.
 function priceLines(entries, discountPct) {
   let subtotal = 0;
+  const unitPrices = new Map(); // variantId -> wholesale unit price
   const lineItems = entries.map(({ v, qty }) => {
     const retail = Number(v.retailPrice) || 0;
     const hasOverride = v.wholesaleOverride != null && v.wholesaleOverride !== '';
     const unit = hasOverride ? Number(v.wholesaleOverride) : round2(retail * (1 - discountPct / 100));
     subtotal += unit * qty;
     const discPct = retail > 0 ? clamp(round2((1 - unit / retail) * 100), 0, 100) : 0;
+    unitPrices.set(v.id, unit);
     return {
       variantId: v.id,
       quantity: qty,
       appliedDiscount: { valueType: 'PERCENTAGE', value: discPct, title: 'Wholesale' },
     };
   });
-  return { lineItems, subtotal: round2(subtotal) };
+  return { lineItems, subtotal: round2(subtotal), unitPrices };
 }
 
 async function submitDraftOrder({ lineItems, tags, customAttributes, note, customerId, customer, volumeDiscountPct, reserveUntil, shippingAddress }) {
@@ -98,15 +101,16 @@ async function submitDraftOrder({ lineItems, tags, customAttributes, note, custo
   };
 }
 
-export async function createOrders(rep, body = {}) {
+// `opts.pendingId` links the recorded order to the form submission it came from.
+export async function createOrders(rep, body = {}, opts = {}) {
   const { lines, customer = {}, notes, repDiscountPct, cardOnFile } = body;
   const discountPct = cache.config?.discountPct ?? 50;
 
   const { ready, backorder } = splitLines(lines);
   if (ready.length === 0 && backorder.length === 0) throw new Error('No valid line items');
 
-  const { lineItems: readyItems, subtotal: readySubtotal } = priceLines(ready, discountPct);
-  const { lineItems: backItems, subtotal: backSubtotal } = priceLines(backorder, discountPct);
+  const { lineItems: readyItems, subtotal: readySubtotal, unitPrices: readyPrices } = priceLines(ready, discountPct);
+  const { lineItems: backItems, subtotal: backSubtotal, unitPrices: backPrices } = priceLines(backorder, discountPct);
   const totalSubtotal = round2(readySubtotal + backSubtotal);
 
   // Resolve the customer once (shared across both draft orders); tags come back fresh from
@@ -192,6 +196,39 @@ export async function createOrders(rep, body = {}) {
     result.backorder.depositAmount = depositAmount;
     result.backorder.balanceAmount = balanceAmount;
     result.backorder.customerTier = tierLabel;
+  }
+
+  // Record the order and reserve where each unit comes from. The drafts already exist in
+  // Shopify at this point, so a failure here must never fail the sale: log it and carry on.
+  try {
+    const byVariant = new Map();
+    const entry = (v) => {
+      if (!byVariant.has(v.id)) {
+        byVariant.set(v.id, {
+          variantId: v.id,
+          sku: v.sku,
+          title: [v.productTitle, v.title !== 'Default Title' ? v.title : null].filter(Boolean).join(' — '),
+          unitPrice: readyPrices.get(v.id) ?? backPrices.get(v.id) ?? null,
+          readyQty: 0,
+          backorderQty: 0,
+        });
+      }
+      return byVariant.get(v.id);
+    };
+    for (const { v, qty } of ready) entry(v).readyQty += qty;
+    for (const { v, qty } of backorder) entry(v).backorderQty += qty;
+    result.orderId = await recordOrder({
+      rep,
+      customer: { id: customerId || null, name: customer.name || null, email: customer.email || null, phone: customer.phone || null, isRepeat: !!isRepeat },
+      entries: [...byVariant.values()],
+      result: { ready: result.ready, backorder: result.backorder },
+      pendingId: opts.pendingId,
+      notes,
+      volumeDiscountPct: applied,
+      subtotal: totalSubtotal,
+    });
+  } catch (err) {
+    console.error('[orderbook] could not record order', result.ready?.name, result.backorder?.name, err);
   }
 
   return result;

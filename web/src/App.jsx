@@ -254,7 +254,11 @@ function Shell({ me }) {
           p.title.toLowerCase().includes(q) ||
           (p.productType || '').toLowerCase().includes(q) ||
           (p.materials || []).some((m) => m.toLowerCase().includes(q)) ||
-          p.variants.some((v) => (v.sku || '').toLowerCase().includes(q))
+          p.variants.some(
+            (v) =>
+              (v.sku || '').toLowerCase().includes(q) ||
+              (v.title !== 'Default Title' && (v.title || '').toLowerCase().includes(q))
+          )
       )
       .sort((a, b) => productRank(a, s.availability, lowT) - productRank(b, s.availability, lowT))
       .slice(0, 60);

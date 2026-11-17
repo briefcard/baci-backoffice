@@ -10,6 +10,7 @@ import { cfg, scopesSatisfied, isCaptainEmail, isAdminEmail } from './config.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, publicFormResponse, personalizedFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
 import { createOrders } from './orders.js';
+import { listOrders, getOrder, reconcile, reservedUnitsByShipmentLine } from './orderbook.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
 import { createPendingRow, savePending, listPending, getPending, markHandled } from './pending.js';
@@ -20,6 +21,7 @@ import {
   getShipment,
   updateShipment,
   receiveShipment,
+  resyncShipment,
   refreshRollup,
   findShipmentMatches,
   findDuplicateByReference,
@@ -165,10 +167,16 @@ app.get('/api/me', { preHandler: requireAuth }, async (req) => ({
 app.get('/api/inbound', { preHandler: requireInboundAccess }, async () => {
   const shipments = await listShipments();
   const docsByShip = await listDocumentsForShipments(shipments.map((s) => s.id));
+  const reserved = await reservedUnitsByShipmentLine();
   return {
     // Attach each shipment's document checklist so the board can flag missing customs docs
     // and the editor can render the checklist without a second round-trip per card.
-    shipments: shipments.map((s) => ({ ...s, docs: checklistFor(docsByShip.get(s.id) || []) })),
+    // `reserved` = units on each line already promised to client orders.
+    shipments: shipments.map((s) => ({
+      ...s,
+      lines: s.lines.map((l) => ({ ...l, reserved: reserved.get(l.id) || 0 })),
+      docs: checklistFor(docsByShip.get(s.id) || []),
+    })),
     statuses: SHIPMENT_STATUSES,
   };
 });
@@ -191,6 +199,7 @@ app.post('/api/inbound', { preHandler: requireInboundAccess }, async (req, reply
     }
     const ship = await createShipment(req.rep.email, req.body || {});
     await refreshRollup();
+    await reconcile();
     return { ok: true, shipment: ship };
   } catch (err) {
     return reply.code(400).send({ error: String(err?.message || err) });
@@ -201,6 +210,7 @@ app.post('/api/inbound/:id', { preHandler: requireInboundAccess }, async (req, r
   const ship = await updateShipment(req.params.id, req.rep.email, req.body || {});
   if (!ship) return reply.code(404).send({ error: 'not found' });
   await refreshRollup();
+  await reconcile();
   return { ok: true, shipment: ship };
 });
 
@@ -209,6 +219,7 @@ app.post('/api/inbound/:id', { preHandler: requireInboundAccess }, async (req, r
 app.post('/api/inbound/:id/rematch', { preHandler: requireInboundAccess }, async (req, reply) => {
   const res = await rematchShipment(req.params.id, req.rep.email);
   if (!res) return reply.code(404).send({ error: 'not found' });
+  await reconcile(); // newly matched lines are new supply for waiting orders
   return { ok: true, ...res };
 });
 
@@ -229,10 +240,26 @@ app.post('/api/inbound/parse', { preHandler: requireInboundAccess }, async (req,
 // Deliberately NOT open to the agent token — stock writes need a human at the warehouse.
 app.post('/api/inbound/:id/receive', { preHandler: requireAuth }, async (req, reply) => {
   if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
-  const ship = await receiveShipment(req.params.id, req.rep.email, req.body || {});
+  let ship;
+  try {
+    ship = await receiveShipment(req.params.id, req.rep.email, req.body || {});
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
   if (!ship) return reply.code(404).send({ error: 'not found' });
   await refreshRollup();
+  await reconcile();
   return { ok: true, shipment: ship };
+});
+
+// Retry the Shopify stock write for received lines that never synced. Same gate as receive.
+app.post('/api/inbound/:id/resync', { preHandler: requireAuth }, async (req, reply) => {
+  if (!isAdminEmail(req.rep.email)) return reply.code(403).send({ error: 'admin only' });
+  const res = await resyncShipment(req.params.id, req.rep.email);
+  if (!res) return reply.code(404).send({ error: 'not found' });
+  await refreshRollup();
+  await reconcile();
+  return { ok: true, ...res };
 });
 
 // ---- Shipment documents (customs/freight doc set; files live in Google Drive) ----
@@ -471,6 +498,15 @@ app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) => {
   }
 });
 
+// The order book: recorded orders with, per line, where each unit comes from (stock, a named
+// shipment, or not yet sourced).
+app.get('/api/orders', { preHandler: requireAuth }, async () => ({ orders: await listOrders() }));
+app.get('/api/orders/:id', { preHandler: requireAuth }, async (req, reply) => {
+  const order = await getOrder(req.params.id);
+  if (!order) return reply.code(404).send({ error: 'not found' });
+  return { order };
+});
+
 // ---- Customer order form (the digitized paper form) ----
 // Two entry paths, one shared pool:
 //   kiosk — a rep's booth tablet in locked form mode (rep session cookie) → POST /api/order-forms
@@ -564,7 +600,7 @@ app.post('/api/pending/:id/confirm', { preHandler: requireAuth }, async (req, re
   if (!row) return reply.code(404).send({ error: 'not found' });
   if (row.status !== 'pending') return reply.code(409).send({ error: `already ${row.status}` });
   try {
-    const result = await createOrders(req.rep, req.body || {});
+    const result = await createOrders(req.rep, req.body || {}, { pendingId: row.id });
     await markHandled(row.id, { status: 'confirmed', by: req.rep.email, result });
     return { ok: true, ...result };
   } catch (err) {

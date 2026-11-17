@@ -186,7 +186,10 @@ export function isAdminEmail(email) {
 export function scopesSatisfied(granted) {
   if (!granted) return false;
   const have = new Set(String(granted).split(',').map((s) => s.trim()).filter(Boolean));
-  return cfg.scopes.split(',').map((s) => s.trim()).filter(Boolean).every((s) => have.has(s));
+  // Shopify reports only write_x when both read_x and write_x were granted (write implies
+  // read), so a required read scope is satisfied by its write counterpart.
+  const covered = (s) => have.has(s) || (s.startsWith('read_') && have.has(`write_${s.slice(5)}`));
+  return cfg.scopes.split(',').map((s) => s.trim()).filter(Boolean).every(covered);
 }
 
 export function assertShopifyConfigured() {
