@@ -144,6 +144,37 @@ function takeFromIncoming(variantId, qty, supply, reserved) {
   return { pieces, left };
 }
 
+// ---- availability before confirming ----
+
+// For a cart, say where each line's units would come from if it were confirmed now: Miami
+// stock, free incoming on a named shipment (earliest ETA first), or nowhere yet. Read-only —
+// nothing is reserved until the order is confirmed. `stockOf(variantId)` returns live stock.
+// Lines for the same variant share supply, so the answer is consistent across the cart.
+export async function previewAvailability(lines, stockOf) {
+  const supply = supplyLines(await listShipments());
+  const reserved = reservedByLine(await loadAllocations());
+  const stockLeft = new Map();
+  return (lines || []).map((l) => {
+    const qty = Math.max(0, Math.floor(Number(l.quantity) || 0));
+    if (!stockLeft.has(l.variantId)) stockLeft.set(l.variantId, Math.max(0, Math.floor(Number(stockOf(l.variantId)) || 0)));
+    const inStock = Math.min(stockLeft.get(l.variantId), qty);
+    stockLeft.set(l.variantId, stockLeft.get(l.variantId) - inStock);
+    const { pieces, left } = takeFromIncoming(l.variantId, qty - inStock, supply, reserved);
+    const expected = pieces.map((p) => {
+      const ship = supply.find((s) => s.ship.id === p.shipmentId).ship;
+      return { quantity: p.quantity, shipment: { id: ship.id, reference: ship.reference, origin: ship.origin, status: ship.status, eta: ship.eta } };
+    });
+    return {
+      variantId: l.variantId,
+      quantity: qty,
+      inStock,
+      expected,
+      unavailable: left,
+      state: left > 0 ? (left === qty ? 'unavailable' : 'partial') : expected.length ? 'expected' : 'in_stock',
+    };
+  });
+}
+
 // ---- recording an order ----
 
 // entries: [{ variantId, sku, title, unitPrice, readyQty, backorderQty }]

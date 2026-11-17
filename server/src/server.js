@@ -10,7 +10,7 @@ import { cfg, scopesSatisfied, missingScopes, isCaptainEmail, isAdminEmail } fro
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, publicFormResponse, personalizedFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
 import { createOrders } from './orders.js';
-import { listOrders, getOrder, reconcile, reservedUnitsByShipmentLine } from './orderbook.js';
+import { listOrders, getOrder, reconcile, reservedUnitsByShipmentLine, previewAvailability } from './orderbook.js';
 import { refreshDeposits, balancePreview, prepareBalance } from './deposits.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
@@ -498,6 +498,26 @@ app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) => {
     req.log.error({ err }, 'draft order failed');
     return reply.code(400).send({ error: String(err?.message || err) });
   }
+});
+
+// Availability check before confirming: where each cart line's units would come from.
+app.post('/api/orders/availability', { preHandler: requireAuth }, async (req) => {
+  const lines = Array.isArray(req.body?.lines) ? req.body.lines.slice(0, 500) : [];
+  const stockOf = (variantId) => cache.availability.get(variantId) || 0;
+  const preview = await previewAvailability(lines, stockOf);
+  // For lines that cannot be fully covered, name the product's substitutes that ARE in stock.
+  const byId = new Map(cache.products.map((p) => [p.id, p]));
+  for (const line of preview) {
+    line.alternatives = [];
+    if (line.unavailable <= 0) continue;
+    const product = cache.products.find((p) => p.variants.some((v) => v.id === line.variantId));
+    for (const id of product?.substitutes || []) {
+      const alt = byId.get(id);
+      const inStock = (alt?.variants || []).reduce((n, v) => n + stockOf(v.id), 0);
+      if (alt && inStock > 0) line.alternatives.push({ title: alt.title, inStock });
+    }
+  }
+  return { lines: preview, leadTime: cfg.leadTimeText };
 });
 
 // The order book: recorded orders with, per line, where each unit comes from (stock, a named

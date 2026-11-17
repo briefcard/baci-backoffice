@@ -717,3 +717,10 @@ main { padding-bottom: 96px; }
 .ord-confirm { display: grid; gap: 8px; background: #f6f7f9; border-radius: 10px; padding: 10px; margin-top: 4px; }
 .ord-confirm-btns { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .ord-money .small-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Availability under a backorder line in the cart */
+.avail { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 8px 0; }
+.avail-chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.avail-chip.expected { background: #eaf2ff; color: #1a56c4; }
+.avail-chip.none { background: #fff4d6; color: var(--low); }
+.avail-subs { font-size: 12px; color: #666; align-self: center; }

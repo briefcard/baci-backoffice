@@ -55,6 +55,7 @@ export const api = {
   inboundUpdate: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}`, body),
   inboundReceive: (id, body) => jpost(`/api/inbound/${encodeURIComponent(id)}/receive`, body),
   orders: () => jget('/api/orders'),
+  orderAvailability: (lines) => jpost('/api/orders/availability', { lines }),
   orderBalance: (id, body) => jpost(`/api/orders/${encodeURIComponent(id)}/balance`, body || {}),
   inboundResync: (id) => jpost(`/api/inbound/${encodeURIComponent(id)}/resync`),
   inboundRematch: (id) => jpost(`/api/inbound/${encodeURIComponent(id)}/rematch`),

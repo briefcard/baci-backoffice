@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { cart, useCart } from '../cart.js';
 import { money, maxAdditionalPct, round2, splitByAvailability, packSize, packLabel, pieces, moqOf, belowMinimum } from '../domain.js';
 import { api } from '../api.js';
@@ -6,6 +6,9 @@ import { CustomerPicker } from './CustomerPicker.jsx';
 import { PrintDoc, OrderCopyDoc } from './PrintDocs.jsx';
 
 const sum = (its) => its.reduce((s, i) => s + i.unit * i.qty, 0);
+
+const fmtEta = (iso) =>
+  new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
 // Also used to review a customer-submitted order form: `pendingId` switches the submit to the
 // pending-confirm endpoint (which closes out the pool entry), with the buyer's info prefilled.
@@ -32,6 +35,33 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
   const [cardOnFile, setCardOnFile] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+
+  // Availability beyond Miami stock for the cart's lines (free incoming by shipment, or none).
+  const [avail, setAvail] = useState(null);
+  const [availLead, setAvailLead] = useState('');
+  const availKey = items.map((i) => `${i.variantId}:${i.qty}`).join(',');
+  useEffect(() => {
+    if (!backorder.length) {
+      setAvail(null);
+      return undefined;
+    }
+    let live = true;
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.orderAvailability(items.map((i) => ({ variantId: i.variantId, quantity: i.qty })));
+        if (!live) return;
+        setAvail(new Map(res.lines.map((l) => [l.variantId, l])));
+        setAvailLead(res.leadTime || '');
+      } catch {
+        if (live) setAvail(null); // offline: the cart still works, just without this detail
+      }
+    }, 350);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availKey, backorder.length]);
   const [done, setDone] = useState(null);
   const [doneCtx, setDoneCtx] = useState(null); // snapshot of the order for the printable copy
   const [showPrint, setShowPrint] = useState(false);
@@ -161,9 +191,34 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
     );
   }
 
-  const renderLines = (its) =>
+  // Where each backorder line would come from, shown under the line. Reps settle the order
+  // with the client from this before confirming. Null when offline or not loaded yet.
+  const sourceNote = (i) => {
+    const a = avail?.get(i.variantId);
+    if (!a) return null;
+    const subs = (a.alternatives || []).slice(0, 3).map((s) => `${s.title} (${s.inStock} in stock)`);
+    return (
+      <div className="avail">
+        {a.expected.map((e) => (
+          <span className="avail-chip expected" key={e.shipment.id}>
+            {e.quantity} expected{e.shipment.eta ? ` ${fmtEta(e.shipment.eta)}` : ', no arrival date yet'}
+            {e.shipment.reference ? ` · ${e.shipment.reference}` : ''}
+          </span>
+        ))}
+        {a.unavailable > 0 && (
+          <span className="avail-chip none">
+            {a.unavailable} not on any shipment — needs ordering{availLead ? ` (~${availLead})` : ''}
+          </span>
+        )}
+        {a.unavailable > 0 && subs.length > 0 && <span className="avail-subs">In stock instead: {subs.join(', ')}</span>}
+      </div>
+    );
+  };
+
+  const renderLines = (its, withSource) =>
     its.map((i) => (
-      <div className="citem" key={i.variantId}>
+      <div className="citem-wrap" key={i.variantId}>
+      <div className="citem">
         {i.image ? <img src={i.image} alt="" /> : <div className="ph" />}
         <div className="cinfo">
           <div className="ct">{i.title}</div>
@@ -180,6 +235,8 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
           <button onClick={() => cart.setQty(i.variantId, i.qty + 1)}>+</button>
         </div>
         <div className="clt">{money(i.unit * i.qty, currency)}</div>
+      </div>
+      {withSource && sourceNote(i)}
       </div>
     ));
 
@@ -211,7 +268,7 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
           {backorder.length > 0 && (
             <>
               <div className="order-section-head warn">Backorder — deposit required</div>
-              {renderLines(backorder)}
+              {renderLines(backorder, true)}
             </>
           )}
 
