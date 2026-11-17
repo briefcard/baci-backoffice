@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, publicFormResponse, personalizedFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
 import { createOrders } from './orders.js';
 import { listOrders, getOrder, reconcile, reservedUnitsByShipmentLine } from './orderbook.js';
+import { refreshDeposits, balancePreview, prepareBalance } from './deposits.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
 import { createPendingRow, savePending, listPending, getPending, markHandled } from './pending.js';
@@ -500,11 +501,31 @@ app.post('/api/orders', { preHandler: requireAuth }, async (req, reply) => {
 
 // The order book: recorded orders with, per line, where each unit comes from (stock, a named
 // shipment, or not yet sourced).
-app.get('/api/orders', { preHandler: requireAuth }, async () => ({ orders: await listOrders() }));
+const withMoney = (o) => ({ ...o, money: balancePreview(o) });
+app.get('/api/orders', { preHandler: requireAuth }, async () => {
+  await refreshDeposits(); // pick up deposits paid in Shopify since the last look
+  return { orders: (await listOrders()).map(withMoney) };
+});
 app.get('/api/orders/:id', { preHandler: requireAuth }, async (req, reply) => {
   const order = await getOrder(req.params.id);
   if (!order) return reply.code(404).send({ error: 'not found' });
-  return { order };
+  return { order: withMoney(order) };
+});
+
+// Prepare the balance invoice: credit the paid deposit on the backorder draft in Shopify.
+// The app shows the figures first (GET /api/orders -> money); this is the confirmed write.
+app.post('/api/orders/:id/balance', { preHandler: requireAuth }, async (req, reply) => {
+  if (!isCaptainEmail(req.rep.email) && !isAdminEmail(req.rep.email)) {
+    return reply.code(403).send({ error: 'checkout captain or admin only' });
+  }
+  try {
+    const force = req.body?.force === true && isAdminEmail(req.rep.email);
+    const res = await prepareBalance(req.params.id, req.rep.email, { force });
+    if (!res) return reply.code(404).send({ error: 'not found' });
+    return { ok: true, order: withMoney(res.order), balance: res.balance };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
 });
 
 // ---- Customer order form (the digitized paper form) ----

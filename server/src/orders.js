@@ -101,6 +101,36 @@ async function submitDraftOrder({ lineItems, tags, customAttributes, note, custo
   };
 }
 
+const DRAFT_ORDER_UPDATE = `
+mutation UpdateDraft($id: ID!, $input: DraftOrderInput!) {
+  draftOrderUpdate(id: $id, input: $input) {
+    draftOrder { id name totalPriceSet { presentmentMoney { amount currencyCode } } }
+    userErrors { field message }
+  }
+}`;
+
+export async function updateDraftOrder(id, input) {
+  const data = await shopifyGraphQL(DRAFT_ORDER_UPDATE, { id, input });
+  const r = data.draftOrderUpdate;
+  if (r.userErrors?.length) throw new Error(r.userErrors.map((e) => e.message).join('; '));
+  return { id: r.draftOrder.id, name: r.draftOrder.name, total: r.draftOrder.totalPriceSet?.presentmentMoney?.amount };
+}
+
+const DRAFT_STATUS = `
+query DraftStatus($ids: [ID!]!) {
+  nodes(ids: $ids) { ... on DraftOrder { id status completedAt } }
+}`;
+
+// Status of draft orders by id: Map id -> { status: OPEN | INVOICE_SENT | COMPLETED, completedAt }.
+export async function draftOrderStatuses(ids) {
+  const out = new Map();
+  for (let i = 0; i < ids.length; i += 50) {
+    const data = await shopifyGraphQL(DRAFT_STATUS, { ids: ids.slice(i, i + 50) });
+    for (const n of data.nodes || []) if (n?.id) out.set(n.id, { status: n.status, completedAt: n.completedAt });
+  }
+  return out;
+}
+
 // `opts.pendingId` links the recorded order to the form submission it came from.
 export async function createOrders(rep, body = {}, opts = {}) {
   const { lines, customer = {}, notes, repDiscountPct, cardOnFile } = body;
@@ -177,9 +207,14 @@ export async function createOrders(rep, body = {}, opts = {}) {
       `Deposit required: ${depositPct}% ($${depositAmount.toFixed(2)}) due now (${tierLabel}); ` +
       `balance $${balanceAmount.toFixed(2)} due when items ship.`;
 
+    const invoiceDeposit = cfg.depositInvoices && depositAmount > 0;
+    const backTags = [...baseTags, 'backorder', 'deposit-required', `deposit-pct:${depositPct}`];
+    // 'deposit-invoiced' tells the checkout queue the money to collect now is on the separate
+    // deposit draft, not on this one.
+    if (invoiceDeposit) backTags.push('deposit-invoiced');
     result.backorder = await submitDraftOrder({
       lineItems: backItems,
-      tags: [...baseTags, 'backorder', 'deposit-required', `deposit-pct:${depositPct}`],
+      tags: backTags,
       customAttributes: [
         ...baseAttrs,
         { key: 'Customer tier', value: tierLabel },
@@ -196,6 +231,49 @@ export async function createOrders(rep, body = {}, opts = {}) {
     result.backorder.depositAmount = depositAmount;
     result.backorder.balanceAmount = balanceAmount;
     result.backorder.customerTier = tierLabel;
+    result.backorder.subtotal = backSubtotal;
+    result.backorder.tags = backTags;
+
+    if (invoiceDeposit) {
+      // The deposit is its own draft order with one custom line, paid now. The goods stay on
+      // the backorder draft, which is credited with the deposit when the balance is prepared.
+      try {
+        result.deposit = await submitDraftOrder({
+          lineItems: [
+            {
+              title: `Deposit ${depositPct}% — backorder ${result.backorder.name}`,
+              originalUnitPrice: depositAmount,
+              quantity: 1,
+              taxable: false,
+              requiresShipping: false,
+            },
+          ],
+          tags: [...baseTags, 'deposit-invoice'],
+          customAttributes: [
+            ...baseAttrs,
+            { key: 'Deposit for', value: result.backorder.name },
+            { key: 'Customer tier', value: tierLabel },
+          ],
+          note: `Deposit for backorder ${result.backorder.name}. Balance $${balanceAmount.toFixed(2)} is invoiced when the goods arrive.`,
+          customerId,
+          customer,
+          volumeDiscountPct: 0,
+          shippingAddress: shipAddress,
+        });
+        result.deposit.amount = depositAmount;
+        result.deposit.pct = depositPct;
+        result.deposit.status = 'open';
+      } catch (err) {
+        // No deposit draft: put the backorder draft back to the single-draft flow so the
+        // checkout queue still shows the deposit to collect on it.
+        console.error('[orders] deposit draft failed for', result.backorder.name, err);
+        result.deposit = null;
+        result.backorder.tags = backTags.filter((t) => t !== 'deposit-invoiced');
+        await updateDraftOrder(result.backorder.id, { tags: result.backorder.tags }).catch((e) =>
+          console.error('[orders] could not untag', result.backorder.name, e)
+        );
+      }
+    }
   }
 
   // Record the order and reserve where each unit comes from. The drafts already exist in
@@ -221,7 +299,7 @@ export async function createOrders(rep, body = {}, opts = {}) {
       rep,
       customer: { id: customerId || null, name: customer.name || null, email: customer.email || null, phone: customer.phone || null, isRepeat: !!isRepeat },
       entries: [...byVariant.values()],
-      result: { ready: result.ready, backorder: result.backorder },
+      result: { ready: result.ready, backorder: result.backorder, deposit: result.deposit || null },
       pendingId: opts.pendingId,
       notes,
       volumeDiscountPct: applied,

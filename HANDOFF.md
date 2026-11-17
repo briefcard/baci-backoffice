@@ -321,5 +321,22 @@ Phase 0 + first half of phase 1 of the procurement/tracking plan. Run `cd server
   an empty receive is a 400.
 - **Left as is, owner to decide:** the sales floor shows `max(Shopify incoming, app shipments)`.
   Summing would double count a shipment entered in both places.
-- **Deposits:** `DraftOrderInput.deposit` (API 2026-07+) is Shopify Plus only per the Shopify
-  changelog; the store is not Plus. Design pending the owner's choice.
+- **Deposits = two Shopify invoices** (`server/src/deposits.js`; owner-approved 2026-11-17).
+  `DraftOrderInput.deposit` (API 2026-07+) is Shopify Plus only and the store is not Plus. So a
+  backorder now creates THREE drafts at most: ready, backorder (tag `deposit-invoiced`), and a
+  DEPOSIT draft (tag `deposit-invoice`, one custom line, attribute `Deposit for: #Dnnn`).
+  - Checkout queue: the deposit draft is what to collect now; the backorder draft shows nothing
+    to collect until its balance is prepared (tag `balance-ready`).
+  - `refreshDeposits()` (on `GET /api/orders`, at most every 30s) reads deposit drafts' status;
+    COMPLETED = paid -> `orders.deposit_draft.status='paid'` + reservations become firm. The app
+    has no `read_orders` scope, so "completed as payment pending" is indistinguishable from paid.
+  - **Orders tab** (`web/src/components/OrdersView.jsx`): every order, where each unit comes
+    from, deposit status, and "Prepare balance invoice". The figures are shown in the app first;
+    on confirmation `POST /api/orders/:id/balance` writes ONE order-level FIXED_AMOUNT discount
+    on the backorder draft (volume discount + deposit credit; a draft has only one order-level
+    discount) and records `orders.balance`. If Shopify's resulting total differs from ours by
+    more than a cent the order shows a warning (`balance.mismatch`).
+  - `DEPOSIT_INVOICES=false` restores the old single-draft behavior.
+  - NOT verified against the live store (tested with a Shopify stand-in): custom line items on a
+    draft, `draftOrderUpdate` with a FIXED_AMOUNT discount, and `nodes(ids:)` on DraftOrder.
+    Verify with one real backorder before relying on it.

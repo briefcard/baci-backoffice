@@ -107,3 +107,18 @@ test('a granted write scope covers the matching read scope', () => {
   assert.equal(scopesSatisfied('write_products,write_inventory,read_locations,write_draft_orders,write_customers'), true);
   assert.equal(scopesSatisfied('write_products,read_locations,write_draft_orders,write_customers'), false);
 });
+
+const { balancePreview } = await import('../src/deposits.js');
+
+test('balance = backorder total minus the deposit, only once the deposit is paid', () => {
+  const order = {
+    volumeDiscountPct: 8,
+    backorderDraft: { name: '#D2', total: '37287.60', subtotal: 40530 },
+    depositDraft: { name: '#D3', amount: 11186.28, pct: 30, status: 'open' },
+  };
+  const unpaid = balancePreview(order);
+  assert.deepEqual([unpaid.depositPaid, unpaid.credit, unpaid.balance, unpaid.volumeAmount], [false, 0, 37287.6, 3242.4]);
+  const paid = balancePreview({ ...order, depositDraft: { ...order.depositDraft, status: 'paid' } });
+  assert.deepEqual([paid.depositPaid, paid.credit, paid.balance], [true, 11186.28, 26101.32]);
+  assert.equal(balancePreview({ backorderDraft: null }), null);
+});

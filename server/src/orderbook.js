@@ -161,6 +161,8 @@ export function recordOrder({ rep, customer, entries, result, pendingId, notes, 
       subtotal: subtotal ?? null,
       readyDraft: result?.ready || null,
       backorderDraft: result?.backorder || null,
+      depositDraft: result?.deposit || null,
+      balance: null,
       createdAt: new Date().toISOString(),
     };
     const lines = entries.map((e) => ({
@@ -193,10 +195,10 @@ export function recordOrder({ rep, customer, entries, result, pendingId, notes, 
       for (const l of lines) mem.lines.set(l.id, l);
     } else {
       await q(
-        `INSERT INTO orders (id, status, customer, rep_email, rep_name, pending_id, notes, volume_discount_pct, subtotal, ready_draft, backorder_draft, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        `INSERT INTO orders (id, status, customer, rep_email, rep_name, pending_id, notes, volume_discount_pct, subtotal, ready_draft, backorder_draft, created_at, deposit_draft)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [order.id, order.status, JSON.stringify(order.customer), order.repEmail, order.repName, order.pendingId, order.notes,
-          order.volumeDiscountPct, order.subtotal, JSON.stringify(order.readyDraft), JSON.stringify(order.backorderDraft), order.createdAt]
+          order.volumeDiscountPct, order.subtotal, JSON.stringify(order.readyDraft), JSON.stringify(order.backorderDraft), order.createdAt, JSON.stringify(order.depositDraft)]
       );
       for (const l of lines) {
         await q(
@@ -302,6 +304,19 @@ export function setOrderFirm(orderId, firm) {
   });
 }
 
+// Update the draft/deposit/balance records kept on an order.
+export async function updateOrder(id, fields) {
+  const cols = { depositDraft: 'deposit_draft', balance: 'balance', backorderDraft: 'backorder_draft' };
+  if (!pool) {
+    const o = mem.orders.get(id);
+    if (o) for (const k of Object.keys(cols)) if (fields[k] !== undefined) o[k] = fields[k];
+    return;
+  }
+  for (const [k, col] of Object.entries(cols)) {
+    if (fields[k] !== undefined) await q(`UPDATE orders SET ${col}=$2 WHERE id=$1`, [id, JSON.stringify(fields[k])]);
+  }
+}
+
 // ---- reads ----
 
 // Reserved units per shipment line id (for the shipments board).
@@ -364,7 +379,8 @@ export async function listOrders({ limit = 100 } = {}) {
       {
         id: r.id, status: r.status, customer: r.customer, repEmail: r.rep_email, repName: r.rep_name, pendingId: r.pending_id,
         notes: r.notes, volumeDiscountPct: Number(r.volume_discount_pct), subtotal: r.subtotal != null ? Number(r.subtotal) : null,
-        readyDraft: r.ready_draft, backorderDraft: r.backorder_draft, createdAt: iso(r.created_at),
+        readyDraft: r.ready_draft, backorderDraft: r.backorder_draft, depositDraft: r.deposit_draft, balance: r.balance,
+        createdAt: iso(r.created_at),
       },
       lr.filter((l) => l.order_id === r.id).map((l) => ({
         id: l.id, variantId: l.variant_id, sku: l.sku, title: l.title, quantity: l.quantity,

@@ -203,3 +203,9 @@ CREATE TABLE IF NOT EXISTS allocations (
 );
 CREATE INDEX IF NOT EXISTS idx_allocations_order ON allocations(order_id);
 CREATE INDEX IF NOT EXISTS idx_allocations_shipment_line ON allocations(shipment_line_id);
+
+-- Deposits as two Shopify invoices (added later; idempotent). The store is not on Shopify Plus,
+-- so a native draft-order deposit is unavailable: a backorder gets a separate deposit draft paid
+-- now, and the backorder draft is credited with it when the balance is prepared.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS deposit_draft JSONB;   -- { id, name, amount, pct, invoiceUrl, status: open|paid, paidAt }
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS balance JSONB;         -- { amount, credit, preparedAt, preparedBy }

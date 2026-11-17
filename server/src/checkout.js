@@ -51,7 +51,12 @@ function parseDraft(n) {
 
   const isBackorder = tags.includes('backorder') || tags.includes('deposit-required');
   const isReady = tags.includes('ready-to-ship');
-  const type = isBackorder ? 'backorder' : isReady ? 'ready' : 'other';
+  const isDeposit = tags.includes('deposit-invoice');
+  // A backorder whose deposit is on its own draft has nothing to collect until its balance
+  // invoice has been prepared (then its total is already net of the deposit).
+  const depositInvoiced = tags.includes('deposit-invoiced');
+  const balanceReady = tags.includes('balance-ready');
+  const type = isDeposit ? 'deposit' : isBackorder ? 'backorder' : isReady ? 'ready' : 'other';
 
   const depositPct = isBackorder ? Number(tagValue(tags, 'deposit-pct:')) || null : null;
   // Prefer the exact $ we stamped at creation; fall back to total × pct.
@@ -63,7 +68,7 @@ function parseDraft(n) {
     : null;
 
   // What the captain collects at the register right now.
-  const dueNow = isBackorder ? depositAmount ?? total : total;
+  const dueNow = isBackorder ? (balanceReady ? total : depositInvoiced ? 0 : depositAmount ?? total) : total;
 
   return {
     id: n.id,
@@ -81,6 +86,9 @@ function parseDraft(n) {
     depositAmount,
     balanceAmount,
     customerTier: attrs['Customer tier'] || null,
+    depositFor: attrs['Deposit for'] || null,
+    depositInvoiced,
+    balanceReady,
     invoiceUrl: n.invoiceUrl || null,
     adminUrl: `https://admin.shopify.com/store/${storeHandle()}/draft_orders/${n.legacyResourceId}`,
   };

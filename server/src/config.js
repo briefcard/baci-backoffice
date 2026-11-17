@@ -107,6 +107,9 @@ export const cfg = {
   // Backorder deposit %, owner-set (2026-07-01): new customers put more down than repeat/B2B-tagged ones.
   defaultDepositNewPct: Number(process.env.DEFAULT_DEPOSIT_NEW_PCT || 40),
   defaultDepositRepeatPct: Number(process.env.DEFAULT_DEPOSIT_REPEAT_PCT || 30),
+  // Backorders get a separate deposit draft order to collect now (two-invoice deposits). Set
+  // DEPOSIT_INVOICES=false to go back to a single backorder draft with a deposit note.
+  depositInvoices: bool(process.env.DEPOSIT_INVOICES, true),
   mainCollections: MAIN_COLLECTIONS,
 
   // Collections hidden from the rep browse (system/SEO/mega collections, not real nav).
