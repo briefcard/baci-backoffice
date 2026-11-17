@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 delete process.env.DATABASE_URL;
 const { createShipment, updateShipment, receiveShipment, findDuplicateByReference } = await import('../src/inbound.js');
 const { recordOrder, reconcile, listOrders, setOrderFirm, freeIncomingByVariant } = await import('../src/orderbook.js');
-const { scopesSatisfied } = await import('../src/config.js');
+const { scopesSatisfied, missingScopes } = await import('../src/config.js');
 
 let n = 0;
 const variant = () => `gid://shopify/ProductVariant/t${++n}`;
@@ -104,8 +104,12 @@ test('duplicate references ignore case, spacing and punctuation', async () => {
 });
 
 test('a granted write scope covers the matching read scope', () => {
-  assert.equal(scopesSatisfied('write_products,write_inventory,read_locations,write_draft_orders,write_customers'), true);
-  assert.equal(scopesSatisfied('write_products,read_locations,write_draft_orders,write_customers'), false);
+  const granted = 'write_products,write_inventory,read_locations,write_draft_orders,write_customers';
+  assert.equal(scopesSatisfied(`${granted},read_orders`), true);
+  assert.equal(scopesSatisfied('write_products,read_locations,write_draft_orders,write_customers,read_orders'), false);
+  // read_orders is required: without it a deposit's payment status cannot be verified
+  assert.equal(scopesSatisfied(granted), false);
+  assert.deepEqual(missingScopes(granted), ['read_orders']);
 });
 
 const { balancePreview } = await import('../src/deposits.js');

@@ -90,7 +90,8 @@ export const cfg = {
   // the pending customer-scopes re-auth so the owner only approves once.
   scopes:
     process.env.SHOPIFY_SCOPES ||
-    'read_products,write_products,read_inventory,write_inventory,read_locations,read_draft_orders,write_draft_orders,read_customers,write_customers',
+    // read_orders: to see whether the order a deposit draft became is actually PAID.
+    'read_products,write_products,read_inventory,write_inventory,read_locations,read_draft_orders,write_draft_orders,read_customers,write_customers,read_orders',
 
   // Confirmed business settings (overridable via env)
   sellableLocationIds: (process.env.SELLABLE_LOCATION_IDS ||
@@ -186,6 +187,12 @@ export function isAdminEmail(email) {
 }
 
 // True when the granted OAuth scopes cover everything the app currently needs.
+export function missingScopes(granted) {
+  const have = new Set(String(granted || '').split(',').map((s) => s.trim()).filter(Boolean));
+  const covered = (s) => have.has(s) || (s.startsWith('read_') && have.has(`write_${s.slice(5)}`));
+  return cfg.scopes.split(',').map((s) => s.trim()).filter(Boolean).filter((s) => !covered(s));
+}
+
 export function scopesSatisfied(granted) {
   if (!granted) return false;
   const have = new Set(String(granted).split(',').map((s) => s.trim()).filter(Boolean));

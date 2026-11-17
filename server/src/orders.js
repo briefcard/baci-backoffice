@@ -116,17 +116,37 @@ export async function updateDraftOrder(id, input) {
   return { id: r.draftOrder.id, name: r.draftOrder.name, total: r.draftOrder.totalPriceSet?.presentmentMoney?.amount };
 }
 
-const DRAFT_STATUS = `
-query DraftStatus($ids: [ID!]!) {
-  nodes(ids: $ids) { ... on DraftOrder { id status completedAt } }
+const draftStatusQuery = (withOrder) => `
+query DraftStatus${withOrder ? 'WithOrder' : ''}($ids: [ID!]!) {
+  nodes(ids: $ids) { ... on DraftOrder { id status completedAt${withOrder ? ' order { id name displayFinancialStatus }' : ''} } }
 }`;
 
-// Status of draft orders by id: Map id -> { status: OPEN | INVOICE_SENT | COMPLETED, completedAt }.
+// Status of draft orders by id: Map id -> { status: OPEN | INVOICE_SENT | COMPLETED,
+// completedAt, order: { id, name, financialStatus } | null, verified }.
+// `verified` = the payment status of the resulting order could be read (needs the read_orders
+// scope). Without that scope the query is retried without the order, and verified is false.
 export async function draftOrderStatuses(ids) {
   const out = new Map();
+  let withOrder = true;
   for (let i = 0; i < ids.length; i += 50) {
-    const data = await shopifyGraphQL(DRAFT_STATUS, { ids: ids.slice(i, i + 50) });
-    for (const n of data.nodes || []) if (n?.id) out.set(n.id, { status: n.status, completedAt: n.completedAt });
+    const chunk = ids.slice(i, i + 50);
+    let data;
+    try {
+      data = await shopifyGraphQL(draftStatusQuery(withOrder), { ids: chunk });
+    } catch (err) {
+      if (!withOrder) throw err;
+      withOrder = false; // most likely read_orders is not granted yet
+      data = await shopifyGraphQL(draftStatusQuery(false), { ids: chunk });
+    }
+    for (const n of data.nodes || []) {
+      if (!n?.id) continue;
+      out.set(n.id, {
+        status: n.status,
+        completedAt: n.completedAt,
+        order: n.order ? { id: n.order.id, name: n.order.name, financialStatus: n.order.displayFinancialStatus } : null,
+        verified: withOrder,
+      });
+    }
   }
   return out;
 }

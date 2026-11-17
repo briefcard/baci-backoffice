@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import { cfg, scopesSatisfied, isCaptainEmail, isAdminEmail } from './config.js';
+import { cfg, scopesSatisfied, missingScopes, isCaptainEmail, isAdminEmail } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, publicFormResponse, personalizedFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
@@ -156,6 +156,7 @@ app.get('/api/health', async () => {
     // token is re-authorized with every scope in cfg.scopes. scopesOk:false = re-auth needed.
     scopesOk: scopesSatisfied(granted),
     grantedScopes: granted || null,
+    missingScopes: missingScopes(granted),
   };
 });
 

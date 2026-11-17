@@ -328,8 +328,14 @@ Phase 0 + first half of phase 1 of the procurement/tracking plan. Run `cd server
   - Checkout queue: the deposit draft is what to collect now; the backorder draft shows nothing
     to collect until its balance is prepared (tag `balance-ready`).
   - `refreshDeposits()` (on `GET /api/orders`, at most every 30s) reads deposit drafts' status;
-    COMPLETED = paid -> `orders.deposit_draft.status='paid'` + reservations become firm. The app
-    has no `read_orders` scope, so "completed as payment pending" is indistinguishable from paid.
+    paid = draft COMPLETED **and** the resulting order's `displayFinancialStatus` is `PAID`
+    (needs `read_orders`, now in the requested scopes) -> `orders.deposit_draft.status='paid'` +
+    reservations become firm. Completed-but-unpaid shows as `awaiting_payment`. Until the store
+    re-approves the app for `read_orders` (`/api/health` -> `missingScopes`), a completed draft
+    is taken as paid and marked `verified:false`.
+  - **Owner step after deploy:** on Render set `SHOPIFY_SCOPES` to the list in `render.yaml` (or
+    delete the variable), then in an incognito window open
+    `/auth/shopify/install?shop=769684-2.myshopify.com` and approve.
   - **Orders tab** (`web/src/components/OrdersView.jsx`): every order, where each unit comes
     from, deposit status, and "Prepare balance invoice". The figures are shown in the app first;
     on confirmation `POST /api/orders/:id/balance` writes ONE order-level FIXED_AMOUNT discount

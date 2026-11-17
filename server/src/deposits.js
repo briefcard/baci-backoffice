@@ -7,9 +7,10 @@
 //   2. prepares the balance: shows, in the app, what the backorder draft will charge once the
 //      deposit is credited, and only on confirmation writes that credit to the Shopify draft.
 //
-// "Paid" is read as the deposit draft being COMPLETED. The app has no read_orders scope, so it
-// cannot tell a draft completed as "payment pending" from one paid in full; the register flow
-// completes a draft by taking payment, which is the case this relies on.
+// "Paid" means the order the deposit draft became has financial status PAID in Shopify (needs
+// the read_orders scope). A draft completed as "payment pending" is NOT paid: it shows as
+// awaiting payment and the reservation stays soft. Until read_orders is granted the order
+// cannot be read; a COMPLETED draft is then taken as paid and marked unverified.
 import { cfg } from './config.js';
 import { round2 } from './domain.js';
 import { draftOrderStatuses, updateDraftOrder } from './orders.js';
@@ -30,7 +31,17 @@ export async function refreshDeposits({ force = false } = {}) {
     for (const o of open) {
       const st = statuses.get(o.depositDraft.id);
       if (st?.status !== 'COMPLETED') continue;
-      await updateOrder(o.id, { depositDraft: { ...o.depositDraft, status: 'paid', paidAt: st.completedAt || new Date().toISOString() } });
+      const isPaid = st.verified ? st.order?.financialStatus === 'PAID' : true;
+      const next = {
+        ...o.depositDraft,
+        status: isPaid ? 'paid' : 'awaiting_payment',
+        verified: st.verified,
+        shopifyOrder: st.order?.name || null,
+        financialStatus: st.order?.financialStatus || null,
+        paidAt: isPaid ? st.completedAt || new Date().toISOString() : null,
+      };
+      if (JSON.stringify(next) !== JSON.stringify(o.depositDraft)) await updateOrder(o.id, { depositDraft: next });
+      if (!isPaid) continue;
       await setOrderFirm(o.id, true);
       paid += 1;
     }

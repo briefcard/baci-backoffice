@@ -80,7 +80,11 @@ export function OrdersView({ canPrepare, currency = 'USD' }) {
                 </div>
               </div>
               <div className="ord-badges">
-                {dep && <span className={`badge ${dep.status === 'paid' ? 'ready' : 'warn'}`}>{dep.status === 'paid' ? 'Deposit paid' : 'Deposit due'}</span>}
+                {dep && (
+                  <span className={`badge ${dep.status === 'paid' ? 'ready' : 'warn'}`}>
+                    {dep.status === 'paid' ? 'Deposit paid' : dep.status === 'awaiting_payment' ? 'Deposit payment pending' : 'Deposit due'}
+                  </span>
+                )}
                 {o.balance && <span className="badge done">Balance invoiced</span>}
               </div>
             </div>
@@ -115,7 +119,11 @@ export function OrdersView({ canPrepare, currency = 'USD' }) {
                 {dep && (
                   <div className="ord-money-row">
                     <span>
-                      Deposit {dep.pct}% · {dep.name} · {m.depositPaid ? `paid ${fmtDate(dep.paidAt)}` : 'not paid yet'}
+                      Deposit {dep.pct}% · {dep.name} · {m.depositPaid
+                        ? `paid ${fmtDate(dep.paidAt)}${dep.shopifyOrder ? ` · order ${dep.shopifyOrder}` : ''}${dep.verified === false ? ' (payment not verified)' : ''}`
+                        : dep.status === 'awaiting_payment'
+                          ? `order ${dep.shopifyOrder || ''} created, payment ${String(dep.financialStatus || 'pending').toLowerCase().replace('_', ' ')}`
+                          : 'not paid yet'}
                     </span>
                     <span>{m.depositPaid ? `− ${money(m.depositAmount, currency)}` : money(m.depositAmount, currency)}</span>
                   </div>
