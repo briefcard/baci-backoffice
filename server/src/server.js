@@ -10,7 +10,9 @@ import { cfg, scopesSatisfied, missingScopes, isCaptainEmail, isAdminEmail } fro
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { buildSnapshot, snapshotResponse, publicFormResponse, personalizedFormResponse, availabilityResponse, loadSeed, cache } from './snapshot.js';
 import { createOrders } from './orders.js';
-import { listOrders, getOrder, reconcile, reservedUnitsByShipmentLine, previewAvailability } from './orderbook.js';
+import {
+  listOrders, getOrder, reconcile, reservedUnitsByShipmentLine, previewAvailability, listEvents, reviewEvent, noteEtaChange,
+} from './orderbook.js';
 import { refreshDeposits, balancePreview, prepareBalance } from './deposits.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
@@ -209,9 +211,11 @@ app.post('/api/inbound', { preHandler: requireInboundAccess }, async (req, reply
 });
 
 app.post('/api/inbound/:id', { preHandler: requireInboundAccess }, async (req, reply) => {
+  const before = await getShipment(req.params.id);
   const ship = await updateShipment(req.params.id, req.rep.email, req.body || {});
   if (!ship) return reply.code(404).send({ error: 'not found' });
   await refreshRollup();
+  await noteEtaChange(before, ship); // orders holding units on it learn the new arrival date
   await reconcile();
   return { ok: true, shipment: ship };
 });
@@ -522,15 +526,49 @@ app.post('/api/orders/availability', { preHandler: requireAuth }, async (req) =>
 
 // The order book: recorded orders with, per line, where each unit comes from (stock, a named
 // shipment, or not yet sourced).
-const withMoney = (o) => ({ ...o, money: balancePreview(o) });
+const draftAdminUrl = (d) =>
+  d?.id ? `https://admin.shopify.com/store/${String(cfg.shopifyStore || '').replace(/\.myshopify\.com$/i, '')}/draft_orders/${String(d.id).split('/').pop()}` : null;
+const withMoney = (o) => ({
+  ...o,
+  money: balancePreview(o),
+  readyDraft: o.readyDraft && { ...o.readyDraft, adminUrl: draftAdminUrl(o.readyDraft) },
+  backorderDraft: o.backorderDraft && { ...o.backorderDraft, adminUrl: draftAdminUrl(o.backorderDraft) },
+  depositDraft: o.depositDraft && { ...o.depositDraft, adminUrl: draftAdminUrl(o.depositDraft) },
+});
 app.get('/api/orders', { preHandler: requireAuth }, async () => {
-  await refreshDeposits(); // pick up deposits paid in Shopify since the last look
-  return { orders: (await listOrders()).map(withMoney) };
+  await refreshDeposits(); // pick up payments made in Shopify since the last look
+  const orders = (await listOrders()).map(withMoney);
+  const events = await listEvents(orders.map((o) => o.id));
+  const names = new Map(orders.map((o) => [o.id, o.customer?.name || o.customer?.email || 'No customer']));
+  return {
+    orders: orders.map((o) => ({ ...o, attention: events.filter((e) => e.orderId === o.id && e.needsReview).length })),
+    // Changes a person should look at before the client is told, newest first.
+    attention: events.filter((e) => e.needsReview).reverse().map((e) => ({ ...e, customer: names.get(e.orderId) })),
+  };
 });
 app.get('/api/orders/:id', { preHandler: requireAuth }, async (req, reply) => {
   const order = await getOrder(req.params.id);
   if (!order) return reply.code(404).send({ error: 'not found' });
-  return { order: withMoney(order) };
+  // The shipments this order's units are on, each with its customs-document checklist.
+  const shipIds = [...new Set(order.lines.flatMap((l) => l.allocations.map((a) => a.shipment?.id).filter(Boolean)))];
+  const docs = await listDocumentsForShipments(shipIds);
+  const all = shipIds.length ? await listShipments() : [];
+  const shipments = shipIds
+    .map((id) => all.find((s) => s.id === id))
+    .filter(Boolean)
+    .map((s) => ({
+      id: s.id, reference: s.reference, origin: s.origin, status: s.status, eta: s.eta, carrier: s.carrier, tracking: s.tracking,
+      units: order.lines.flatMap((l) => l.allocations).filter((a) => a.shipment?.id === s.id).reduce((n, a) => n + a.quantity, 0),
+      docs: checklistFor(docs.get(s.id) || []),
+    }));
+  return { order: { ...withMoney(order), shipments, events: await listEvents([order.id]) } };
+});
+
+// A person has dealt with a flagged change on an order (re-sourced it, told the client).
+app.post('/api/orders/:id/events/:eventId/review', { preHandler: requireAuth }, async (req, reply) => {
+  const ev = await reviewEvent(req.params.eventId, req.rep.email);
+  if (!ev || ev.orderId !== req.params.id) return reply.code(404).send({ error: 'not found' });
+  return { ok: true, event: ev };
 });
 
 // Prepare the balance invoice: credit the paid deposit on the backorder draft in Shopify.

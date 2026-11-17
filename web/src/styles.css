@@ -724,3 +724,32 @@ main { padding-bottom: 96px; }
 .avail-chip.expected { background: #eaf2ff; color: #1a56c4; }
 .avail-chip.none { background: #fff4d6; color: var(--low); }
 .avail-subs { font-size: 12px; color: #666; align-self: center; }
+
+/* Orders list + order page (internal staff) */
+.ord-tools { display: grid; gap: 8px; }
+.ord-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.ord-filters .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.ord-filters .chip.active { background: #111; color: #fff; border-color: #111; }
+.ord-row { display: flex; justify-content: space-between; gap: 10px; text-align: left; width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; cursor: pointer; font: inherit; color: inherit; }
+.ord-row:hover { border-color: #b9bcc4; }
+.ord-row-main { display: grid; gap: 2px; min-width: 0; }
+.ord-row .ord-badges { align-items: flex-end; flex-direction: column; }
+.ord-total { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ord-attn { background: #fff8e6; border: 1px solid #f0d58a; border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+.ord-attn-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ord-attn-main { display: grid; gap: 2px; text-align: left; background: none; border: 0; padding: 0; font: inherit; color: inherit; min-width: 0; }
+button.ord-attn-main { cursor: pointer; }
+.ord-back { justify-self: start; padding: 4px 0; }
+.ord-title { font-size: 20px; font-weight: 700; }
+.ord-links { display: flex; gap: 14px; flex-wrap: wrap; }
+.ord-notes { background: #f6f7f9; border-radius: 8px; padding: 8px; white-space: pre-wrap; }
+.ord-grand { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; }
+.ord-ship { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--line); }
+.ord-ship-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ord-docs { display: flex; gap: 6px; flex-wrap: wrap; }
+.ord-doc { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #e6f4ea; color: var(--in); text-decoration: none; }
+.ord-doc.required { background: #fdeeee; color: var(--accent); }
+.ord-event { display: grid; grid-template-columns: 130px 1fr; gap: 10px; padding: 4px 0; }
+@media (max-width: 520px) { .ord-event { grid-template-columns: 1fr; gap: 0; } }
+.ord-attn-row .small-btn, .ord-money .small-btn { width: auto; flex: none; white-space: nowrap; }
+.ord-attn-main { flex: 1; }

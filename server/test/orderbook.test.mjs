@@ -144,3 +144,37 @@ test('availability check: stock first, then free incoming by arrival date, then 
   const [again] = await previewAvailability([{ variantId: v, quantity: 40 }], stockOf);
   assert.equal(again.unavailable, 9);
 });
+
+const { listEvents, reviewEvent, noteEtaChange } = await import('../src/orderbook.js');
+
+test('order history: a later arrival date and lost units are flagged; re-sourcing resolves the flag', async () => {
+  const v = variant();
+  const s1 = await ship(v, 30, { eta: '2027-01-10' });
+  const o = await order(v, 20);
+  const flags = async () => (await listEvents([o])).filter((e) => e.needsReview).map((e) => e.kind);
+
+  // earlier date: recorded, not flagged
+  let after = await updateShipment(s1.id, 'test', { eta: '2027-01-05' });
+  await noteEtaChange(s1, after);
+  assert.deepEqual(await flags(), []);
+  // later date: flagged
+  const later = await updateShipment(s1.id, 'test', { eta: '2027-02-01' });
+  await noteEtaChange(after, later);
+  assert.deepEqual(await flags(), ['eta_changed']);
+  const [flag] = (await listEvents([o])).filter((e) => e.needsReview);
+  assert.deepEqual([flag.detail.from, flag.detail.to, flag.detail.units], ['2027-01-05', '2027-02-01', 20]);
+  await reviewEvent(flag.id, 'staff@test');
+  assert.deepEqual(await flags(), []);
+
+  // shipment cancelled: the units lose their source and the order is flagged
+  await updateShipment(s1.id, 'test', { status: 'cancelled' });
+  await reconcile();
+  assert.deepEqual(await flags(), ['units_released']);
+  // a replacement shipment: the stale flag closes, the new arrival date is flagged instead
+  await ship(v, 25, { eta: '2027-03-01' });
+  await reconcile();
+  assert.deepEqual(await flags(), ['units_sourced']);
+  const sourced = (await listEvents([o])).find((e) => e.kind === 'units_sourced');
+  assert.deepEqual([sourced.detail.units, sourced.detail.eta, sourced.detail.replaces], [20, '2027-03-01', true]);
+  assert.deepEqual((await listEvents([o])).map((e) => e.kind), ['created', 'eta_changed', 'eta_changed', 'units_released', 'units_sourced']);
+});

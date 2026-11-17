@@ -14,7 +14,7 @@
 import { cfg } from './config.js';
 import { round2 } from './domain.js';
 import { draftOrderStatuses, updateDraftOrder } from './orders.js';
-import { getOrder, listOrders, setOrderFirm, updateOrder } from './orderbook.js';
+import { addEvent, getOrder, listOrders, setOrderFirm, updateOrder } from './orderbook.js';
 
 let lastRefresh = 0;
 
@@ -24,11 +24,34 @@ export async function refreshDeposits({ force = false } = {}) {
   if (!force && Date.now() - lastRefresh < 30000) return 0;
   lastRefresh = Date.now();
   try {
-    const open = (await listOrders({ limit: 500 })).filter((o) => o.depositDraft?.id && o.depositDraft.status !== 'paid');
+    // Every order that is not finished in Shopify yet: some draft unpaid or not yet delivered.
+    const drafts = (o) => [['ready', o.readyDraft], ['backorder', o.backorderDraft], ['deposit', o.depositDraft]].filter(([, d]) => d?.id);
+    const settled = (o) =>
+      drafts(o).every(([k]) => {
+        const p = o.payment?.[k];
+        return p?.financialStatus === 'PAID' && (k === 'deposit' || p.fulfillmentStatus === 'FULFILLED');
+      });
+    const open = (await listOrders({ limit: 500 })).filter((o) => drafts(o).length && !settled(o));
     if (!open.length) return 0;
-    const statuses = await draftOrderStatuses(open.map((o) => o.depositDraft.id));
+    const statuses = await draftOrderStatuses(open.flatMap((o) => drafts(o).map(([, d]) => d.id)));
     let paid = 0;
     for (const o of open) {
+      // What Shopify says about each draft, kept on the order for the order page.
+      const payment = {};
+      for (const [k, d] of drafts(o)) {
+        const s = statuses.get(d.id);
+        if (!s) continue;
+        payment[k] = {
+          status: s.status,
+          order: s.order?.name || null,
+          financialStatus: s.order?.financialStatus || null,
+          fulfillmentStatus: s.order?.fulfillmentStatus || null,
+          verified: s.verified,
+        };
+      }
+      if (JSON.stringify(payment) !== JSON.stringify(o.payment || {})) await updateOrder(o.id, { payment });
+
+      if (!o.depositDraft?.id || o.depositDraft.status === 'paid') continue;
       const st = statuses.get(o.depositDraft.id);
       if (st?.status !== 'COMPLETED') continue;
       const isPaid = st.verified ? st.order?.financialStatus === 'PAID' : true;
@@ -43,6 +66,7 @@ export async function refreshDeposits({ force = false } = {}) {
       if (JSON.stringify(next) !== JSON.stringify(o.depositDraft)) await updateOrder(o.id, { depositDraft: next });
       if (!isPaid) continue;
       await setOrderFirm(o.id, true);
+      await addEvent(o.id, 'deposit_paid', { draft: o.depositDraft.name, order: next.shopifyOrder, amount: o.depositDraft.amount, verified: st.verified });
       paid += 1;
     }
     return paid;
@@ -120,6 +144,7 @@ export async function prepareBalance(orderId, by, { force = false } = {}) {
     mismatch: Number.isFinite(shopifyTotal) && Math.abs(shopifyTotal - p.balance) > 0.01,
   };
   await updateOrder(orderId, { balance, backorderDraft: { ...back, tags } });
+  await addEvent(orderId, 'balance_prepared', { draft: back.name, amount: balance.amount, credit: balance.credit, by });
   return { order: await getOrder(orderId), balance };
 }
 
