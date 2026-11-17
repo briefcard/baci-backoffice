@@ -150,3 +150,62 @@ CREATE INDEX IF NOT EXISTS idx_inbound_documents_scope ON inbound_documents(scop
 --   ('jane@bacimilanousa.com', 'Jane Doe'),
 --   ('rob@bacimilanousa.com',  'Rob Smith')
 -- ON CONFLICT (email) DO NOTHING;
+
+-- ---- Order book (added later; idempotent) ----
+-- Every order the app creates is recorded here with its lines, so a client's order can be
+-- followed after the Shopify drafts are created. Shopify stays the record for payment; this is
+-- the record of what was ordered and where each unit is coming from.
+CREATE TABLE IF NOT EXISTS orders (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'open',      -- open | cancelled
+  customer JSONB,                           -- { id, name, email, phone, isRepeat }
+  rep_email TEXT,
+  rep_name TEXT,
+  pending_id TEXT,                          -- pending_orders.id when it came from a form
+  notes TEXT,
+  volume_discount_pct NUMERIC NOT NULL DEFAULT 0,
+  subtotal NUMERIC,                         -- wholesale subtotal before the volume discount
+  ready_draft JSONB,                        -- { id, name, total, invoiceUrl }
+  backorder_draft JSONB,                    -- same + depositPct, depositAmount, balanceAmount
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS order_lines (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  variant_id TEXT NOT NULL,
+  sku TEXT,
+  title TEXT,
+  quantity INTEGER NOT NULL,
+  unit_price NUMERIC,                       -- wholesale unit price at order time
+  ready_qty INTEGER NOT NULL DEFAULT 0,     -- covered by Miami stock at order time
+  backorder_qty INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id);
+
+-- Where each ordered unit comes from. A line can have several rows: some units from stock,
+-- some from one shipment, some from another, some not yet sourced. One shipment line can feed
+-- many orders. shipment_line_id is deliberately NOT a foreign key: saving a shipment rewrites
+-- its lines (same ids), and a removed line must release its reservations, not delete them.
+CREATE TABLE IF NOT EXISTS allocations (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  order_line_id TEXT NOT NULL REFERENCES order_lines(id) ON DELETE CASCADE,
+  variant_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  source TEXT NOT NULL,                     -- stock | shipment | unsourced
+  shipment_id TEXT,
+  shipment_line_id TEXT,
+  firm BOOLEAN NOT NULL DEFAULT false,      -- true once the deposit is paid: not reshuffled
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_allocations_order ON allocations(order_id);
+CREATE INDEX IF NOT EXISTS idx_allocations_shipment_line ON allocations(shipment_line_id);
+
+-- Deposits as two Shopify invoices (added later; idempotent). The store is not on Shopify Plus,
+-- so a native draft-order deposit is unavailable: a backorder gets a separate deposit draft paid
+-- now, and the backorder draft is credited with it when the balance is prepared.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS deposit_draft JSONB;   -- { id, name, amount, pct, invoiceUrl, status: open|paid, paidAt }
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS balance JSONB;         -- { amount, credit, preparedAt, preparedBy }

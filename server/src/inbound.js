@@ -14,6 +14,8 @@ import { cfg } from './config.js';
 import { shopifyGraphQL } from './shopify.js';
 import { getToken } from './tokens.js';
 import { cache, setInboundOverlay } from './snapshot.js';
+import { broadcast } from './stream.js';
+import { stockState } from './domain.js';
 
 const memShipments = new Map(); // id -> shipment (with .lines[]) when no DATABASE_URL
 
@@ -318,6 +320,18 @@ const SET_BINS = `mutation($metafields: [MetafieldsSetInput!]!) {
   }
 }`;
 
+// Reflect units just added in Shopify on the sales floor right away, instead of waiting for the
+// next snapshot rebuild (or an inventory webhook, when one is registered).
+function noteStockAdded(variantId, delta) {
+  const available = (cache.availability.get(variantId) || 0) + delta;
+  cache.availability.set(variantId, available);
+  for (const p of cache.products) {
+    const v = p.variants.find((x) => x.id === variantId);
+    if (v) v.available = available;
+  }
+  broadcast({ type: 'inventory', variantId, available, state: stockState(available, cache.config?.lowThreshold) });
+}
+
 // Push one received line into Shopify: +accepted units at the sellable location, and merge the
 // bin codes into the product's warehouse.bin_location metafield. Returns { ok, error }.
 async function pushLineToShopify(line) {
@@ -339,6 +353,7 @@ async function pushLineToShopify(line) {
       });
       const errs = res.inventoryAdjustQuantities?.userErrors;
       if (errs?.length) return { ok: false, error: errs.map((e) => e.message).join('; ') };
+      noteStockAdded(line.variantId, accepted);
     }
 
     if (productId && line.bins?.length) {
@@ -368,6 +383,7 @@ export async function receiveShipment(id, by, body = {}) {
   if (!ship) return null;
   const now = new Date().toISOString();
   const updates = new Map((body.lines || []).map((l) => [l.id, l]));
+  if (!ship.lines.some((l) => updates.has(l.id))) throw new Error('No lines to receive');
 
   for (const line of ship.lines) {
     const u = updates.get(line.id);
@@ -388,7 +404,7 @@ export async function receiveShipment(id, by, body = {}) {
   ship.status = allReceived ? 'received' : 'receiving';
   ship.timeline = [
     ...ship.timeline,
-    { at: now, status: ship.status, note: `Received ${updates.size} line(s)`, by },
+    { at: now, status: ship.status, note: `Received ${ship.lines.filter((l) => updates.has(l.id)).length} line(s)`, by },
   ];
   ship.updatedAt = now;
 
@@ -410,6 +426,38 @@ export async function receiveShipment(id, by, body = {}) {
     );
   }
   return ship;
+}
+
+// Retry the Shopify write for lines that were counted in but never reached Shopify (unmatched
+// SKU at the time, a missing scope, a network error). Unmatched SKUs are re-resolved first.
+// Only lines with shopifySynced=false are touched, so a line is never added to stock twice.
+export async function resyncShipment(id, by) {
+  const ship = await getShipment(id);
+  if (!ship) return null;
+  const pending = ship.lines.filter((l) => l.receivedAt && !l.shopifySynced);
+  if (!pending.length) return { shipment: ship, synced: 0, failed: 0 };
+  await resolveLines(pending.filter((l) => !l.variantId));
+  let synced = 0;
+  for (const line of pending) {
+    const push = await pushLineToShopify(line);
+    line.shopifySynced = push.ok;
+    line.syncError = push.ok ? null : push.error;
+    if (push.ok) synced += 1;
+    if (pool) {
+      await q('UPDATE inbound_lines SET variant_id=$2, title=$3, shopify_synced=$4, sync_error=$5 WHERE id=$1', [
+        line.id, line.variantId, line.title, line.shopifySynced, line.syncError,
+      ]);
+    }
+  }
+  const now = new Date().toISOString();
+  ship.timeline = [
+    ...ship.timeline,
+    { at: now, status: ship.status, note: `Shopify sync retried: ${synced} of ${pending.length} line(s) synced`, by },
+  ];
+  ship.updatedAt = now;
+  if (pool) await q('UPDATE inbound_shipments SET timeline=$2, updated_at=$3 WHERE id=$1', [id, JSON.stringify(ship.timeline), now]);
+  else memShipments.set(id, ship);
+  return { shipment: ship, synced, failed: pending.length - synced };
 }
 
 // ---- Reference matching (WhatsApp-agent surface) ----
@@ -451,6 +499,9 @@ export async function findShipmentMatches(query) {
   return matches;
 }
 
+// "ORD-981", "ord 981" and "Ord_981" are the same reference.
+const refKey = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
 // Duplicate guard for agent-created shipments: same canonical reference on any live shipment.
 export async function findDuplicateByReference(reference) {
   const tokens = refTokens(reference);
@@ -460,7 +511,7 @@ export async function findDuplicateByReference(reference) {
     if (ship.status === 'cancelled') continue;
     const shipTokens = refTokens(ship.reference);
     if ([...tokens].some((t) => shipTokens.has(t))) return ship;
-    if (ship.reference && ship.reference.trim().toUpperCase() === raw) return ship;
+    if (ship.reference && refKey(ship.reference) === refKey(raw)) return ship;
   }
   return null;
 }

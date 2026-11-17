@@ -301,3 +301,48 @@ review + pre-confirm quote · `404243e` RFQ fill-in + terms · `c929b7e` brandin
 origin toggle · `842f7fb` bin placeholders · `2cfa8d3` status pills + quick-add · `41dfa7f` items
 view · `4c58a6f` inbound tracker · `b28978e` RFQ draft flow · earlier: order form, checkout queue,
 customer profile, 50% reprice, deposits — all in memory.
+
+## 12. Order book + reservations (2026-11-17, branch `claude/baci-monthly-takeaway-34a2um`, NOT merged)
+
+Phase 0 + first half of phase 1 of the procurement/tracking plan. Run `cd server && npm test`.
+
+- **Order book** (`server/src/orderbook.js`; tables `orders`, `order_lines`, `allocations`):
+  `createOrders` now records every order with its lines and returns `orderId`. Each unit gets an
+  allocation: `stock` (ready units), `shipment` (reserved on a specific inbound line, earliest ETA
+  first) or `unsourced` (needs ordering). A recording failure is logged and never fails the sale.
+- **`reconcile()`** runs after every inbound change: releases reservations on cancelled/draft
+  shipments, removed lines and short receipts (soft before firm, newest order first), then gives
+  free incoming to waiting orders (firm first, oldest order first). `setOrderFirm` exists; nothing
+  calls it yet (deposits are the next step).
+- **Routes:** `GET /api/orders`, `GET /api/orders/:id`; `GET /api/inbound` lines carry `reserved`;
+  `POST /api/inbound/:id/resync` retries the Shopify stock write for received-but-unsynced lines.
+- **Fixes:** health `scopesOk` treats write_x as covering read_x; search matches variant names;
+  stock shows immediately after a QA receive; duplicate-reference guard ignores case/punctuation;
+  an empty receive is a 400.
+- **Left as is, owner to decide:** the sales floor shows `max(Shopify incoming, app shipments)`.
+  Summing would double count a shipment entered in both places.
+- **Deposits = two Shopify invoices** (`server/src/deposits.js`; owner-approved 2026-11-17).
+  `DraftOrderInput.deposit` (API 2026-07+) is Shopify Plus only and the store is not Plus. So a
+  backorder now creates THREE drafts at most: ready, backorder (tag `deposit-invoiced`), and a
+  DEPOSIT draft (tag `deposit-invoice`, one custom line, attribute `Deposit for: #Dnnn`).
+  - Checkout queue: the deposit draft is what to collect now; the backorder draft shows nothing
+    to collect until its balance is prepared (tag `balance-ready`).
+  - `refreshDeposits()` (on `GET /api/orders`, at most every 30s) reads deposit drafts' status;
+    paid = draft COMPLETED **and** the resulting order's `displayFinancialStatus` is `PAID`
+    (needs `read_orders`, now in the requested scopes) -> `orders.deposit_draft.status='paid'` +
+    reservations become firm. Completed-but-unpaid shows as `awaiting_payment`. Until the store
+    re-approves the app for `read_orders` (`/api/health` -> `missingScopes`), a completed draft
+    is taken as paid and marked `verified:false`.
+  - **Owner step after deploy:** on Render set `SHOPIFY_SCOPES` to the list in `render.yaml` (or
+    delete the variable), then in an incognito window open
+    `/auth/shopify/install?shop=769684-2.myshopify.com` and approve.
+  - **Orders tab** (`web/src/components/OrdersView.jsx`): every order, where each unit comes
+    from, deposit status, and "Prepare balance invoice". The figures are shown in the app first;
+    on confirmation `POST /api/orders/:id/balance` writes ONE order-level FIXED_AMOUNT discount
+    on the backorder draft (volume discount + deposit credit; a draft has only one order-level
+    discount) and records `orders.balance`. If Shopify's resulting total differs from ours by
+    more than a cent the order shows a warning (`balance.mismatch`).
+  - `DEPOSIT_INVOICES=false` restores the old single-draft behavior.
+  - NOT verified against the live store (tested with a Shopify stand-in): custom line items on a
+    draft, `draftOrderUpdate` with a FIXED_AMOUNT discount, and `nodes(ids:)` on DraftOrder.
+    Verify with one real backorder before relying on it.

@@ -9,6 +9,7 @@ import { CheckoutView } from './components/CheckoutView.jsx';
 import { OrderFormView, ExitGate } from './components/OrderFormView.jsx';
 import { ShareFormSheet } from './components/CustomerPicker.jsx';
 import { PendingView } from './components/PendingView.jsx';
+import { OrdersView } from './components/OrdersView.jsx';
 import { InboundView } from './components/InboundView.jsx';
 import { PrintDoc, BlankFormDoc, OrderCopyDoc } from './components/PrintDocs.jsx';
 import { Lookbook } from './components/Lookbook.jsx';
@@ -254,7 +255,11 @@ function Shell({ me }) {
           p.title.toLowerCase().includes(q) ||
           (p.productType || '').toLowerCase().includes(q) ||
           (p.materials || []).some((m) => m.toLowerCase().includes(q)) ||
-          p.variants.some((v) => (v.sku || '').toLowerCase().includes(q))
+          p.variants.some(
+            (v) =>
+              (v.sku || '').toLowerCase().includes(q) ||
+              (v.title !== 'Default Title' && (v.title || '').toLowerCase().includes(q))
+          )
       )
       .sort((a, b) => productRank(a, s.availability, lowT) - productRank(b, s.availability, lowT))
       .slice(0, 60);
@@ -285,6 +290,7 @@ function Shell({ me }) {
   const showCheckout = isCaptain && view === 'checkout';
   const showPending = view === 'pending';
   const showQuotes = view === 'quotes';
+  const showOrders = view === 'orders';
   const showInbound = isAdmin && view === 'inbound';
 
   // A rep opened a submitted form: seed the normal cart with its lines (priced from the live
@@ -409,6 +415,9 @@ function Shell({ me }) {
           <button className={showQuotes ? 'tab active' : 'tab'} onClick={() => setView('quotes')}>
             Quotes{quoteCount > 0 ? ` · ${quoteCount}` : ''}
           </button>
+          <button className={showOrders ? 'tab active' : 'tab'} onClick={() => setView('orders')}>
+            Orders
+          </button>
           {isCaptain && (
             <button className={view === 'checkout' ? 'tab active' : 'tab'} onClick={() => setView('checkout')}>
               Checkout
@@ -420,7 +429,7 @@ function Shell({ me }) {
             </button>
           )}
         </div>
-        {!showCheckout && !showPending && !showQuotes && !showInbound && (
+        {!showCheckout && !showPending && !showQuotes && !showOrders && !showInbound && (
           <input
             className="search"
             placeholder="Search SKU, name, or type…"
@@ -439,6 +448,8 @@ function Shell({ me }) {
           <PendingView pending={orders} onOpen={openPending} onDismiss={dismissPending} />
         ) : showQuotes ? (
           <PendingView pending={quotes} onOpen={openPending} onDismiss={dismissPending} intent="quote" />
+        ) : showOrders ? (
+          <OrdersView canPrepare={isCaptain || isAdmin} currency={s.config?.currency} />
         ) : query.trim() ? (
           <>
             {results.map((p) => (
@@ -462,7 +473,7 @@ function Shell({ me }) {
         )}
       </main>
 
-      {!showCheckout && !showPending && !showInbound && cartItems.length > 0 && (
+      {!showCheckout && !showPending && !showOrders && !showInbound && cartItems.length > 0 && (
         <button className="cartbar" onClick={() => setShowCart(true)}>
           <span>
             {cartCount(cartItems)} item{cartCount(cartItems) !== 1 ? 's' : ''}

@@ -735,6 +735,27 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
     }
   };
 
+  const unsyncedCount = lines.filter((l) => l.receivedAt && !l.shopifySynced).length;
+  const resync = async () => {
+    if (!shipment) return;
+    setRematching(true);
+    setRematchMsg('');
+    setErr('');
+    try {
+      const res = await api.inboundResync(shipment.id);
+      setLines(res.shipment.lines);
+      setRematchMsg(
+        res.failed > 0
+          ? `${res.synced} line${res.synced === 1 ? '' : 's'} added to Shopify stock; ${res.failed} still failing.`
+          : `${res.synced} line${res.synced === 1 ? '' : 's'} added to Shopify stock.`
+      );
+    } catch (e) {
+      setErr(e?.message || 'Shopify sync failed');
+    } finally {
+      setRematching(false);
+    }
+  };
+
   const copyCsv = async () => {
     const csv = ['SKU,Item,Qty', ...lines.filter((l) => l.expected > 0).map((l) => `${l.sku},"${(l.title || '').replace(/"/g, '""')}",${l.expected}`)].join('\n');
     try {
@@ -830,6 +851,11 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
                 <span className={l.variantId ? 'small' : 'small err-inline'}>
                   {l.title || (l.variantId ? '' : 'not in catalog')}
                 </span>
+                {l.reserved > 0 && (
+                  <span className="small muted">
+                    {l.reserved} of {l.expected} reserved for client orders
+                  </span>
+                )}
               </div>
               <input
                 className="fqty"
@@ -853,6 +879,16 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
               <span className="small err-inline">{unmatchedCount} SKU{unmatchedCount > 1 ? 's' : ''} not in catalog</span>
               <button type="button" className="link" disabled={rematching} onClick={rematch}>
                 {rematching ? 'Matching…' : '↻ Re-match to Shopify'}
+              </button>
+            </div>
+          )}
+          {shipment && unsyncedCount > 0 && (
+            <div className="rematch-row">
+              <span className="small err-inline">
+                {unsyncedCount} received line{unsyncedCount > 1 ? 's' : ''} not yet in Shopify stock
+              </span>
+              <button type="button" className="link" disabled={rematching} onClick={resync}>
+                {rematching ? 'Syncing…' : '↻ Retry Shopify sync'}
               </button>
             </div>
           )}

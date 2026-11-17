@@ -11,6 +11,7 @@ import { cache } from './snapshot.js';
 import { round2, maxAdditionalPct } from './domain.js';
 import { resolveCustomer, clientAddressToInput } from './customers.js';
 import { cfg } from './config.js';
+import { recordOrder } from './orderbook.js';
 
 const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
 
@@ -28,7 +29,7 @@ mutation CreateDraft($input: DraftOrderInput!) {
 }`;
 
 function findVariant(variantId) {
-  for (const p of cache.products) for (const v of p.variants) if (v.id === variantId) return v;
+  for (const p of cache.products) for (const v of p.variants) if (v.id === variantId) return { ...v, productTitle: p.title };
   return null;
 }
 
@@ -53,19 +54,21 @@ function splitLines(lines) {
 // items (with the per-line wholesale discount applied) plus the wholesale subtotal.
 function priceLines(entries, discountPct) {
   let subtotal = 0;
+  const unitPrices = new Map(); // variantId -> wholesale unit price
   const lineItems = entries.map(({ v, qty }) => {
     const retail = Number(v.retailPrice) || 0;
     const hasOverride = v.wholesaleOverride != null && v.wholesaleOverride !== '';
     const unit = hasOverride ? Number(v.wholesaleOverride) : round2(retail * (1 - discountPct / 100));
     subtotal += unit * qty;
     const discPct = retail > 0 ? clamp(round2((1 - unit / retail) * 100), 0, 100) : 0;
+    unitPrices.set(v.id, unit);
     return {
       variantId: v.id,
       quantity: qty,
       appliedDiscount: { valueType: 'PERCENTAGE', value: discPct, title: 'Wholesale' },
     };
   });
-  return { lineItems, subtotal: round2(subtotal) };
+  return { lineItems, subtotal: round2(subtotal), unitPrices };
 }
 
 async function submitDraftOrder({ lineItems, tags, customAttributes, note, customerId, customer, volumeDiscountPct, reserveUntil, shippingAddress }) {
@@ -98,15 +101,66 @@ async function submitDraftOrder({ lineItems, tags, customAttributes, note, custo
   };
 }
 
-export async function createOrders(rep, body = {}) {
+const DRAFT_ORDER_UPDATE = `
+mutation UpdateDraft($id: ID!, $input: DraftOrderInput!) {
+  draftOrderUpdate(id: $id, input: $input) {
+    draftOrder { id name totalPriceSet { presentmentMoney { amount currencyCode } } }
+    userErrors { field message }
+  }
+}`;
+
+export async function updateDraftOrder(id, input) {
+  const data = await shopifyGraphQL(DRAFT_ORDER_UPDATE, { id, input });
+  const r = data.draftOrderUpdate;
+  if (r.userErrors?.length) throw new Error(r.userErrors.map((e) => e.message).join('; '));
+  return { id: r.draftOrder.id, name: r.draftOrder.name, total: r.draftOrder.totalPriceSet?.presentmentMoney?.amount };
+}
+
+const draftStatusQuery = (withOrder) => `
+query DraftStatus${withOrder ? 'WithOrder' : ''}($ids: [ID!]!) {
+  nodes(ids: $ids) { ... on DraftOrder { id status completedAt${withOrder ? ' order { id name displayFinancialStatus }' : ''} } }
+}`;
+
+// Status of draft orders by id: Map id -> { status: OPEN | INVOICE_SENT | COMPLETED,
+// completedAt, order: { id, name, financialStatus } | null, verified }.
+// `verified` = the payment status of the resulting order could be read (needs the read_orders
+// scope). Without that scope the query is retried without the order, and verified is false.
+export async function draftOrderStatuses(ids) {
+  const out = new Map();
+  let withOrder = true;
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    let data;
+    try {
+      data = await shopifyGraphQL(draftStatusQuery(withOrder), { ids: chunk });
+    } catch (err) {
+      if (!withOrder) throw err;
+      withOrder = false; // most likely read_orders is not granted yet
+      data = await shopifyGraphQL(draftStatusQuery(false), { ids: chunk });
+    }
+    for (const n of data.nodes || []) {
+      if (!n?.id) continue;
+      out.set(n.id, {
+        status: n.status,
+        completedAt: n.completedAt,
+        order: n.order ? { id: n.order.id, name: n.order.name, financialStatus: n.order.displayFinancialStatus } : null,
+        verified: withOrder,
+      });
+    }
+  }
+  return out;
+}
+
+// `opts.pendingId` links the recorded order to the form submission it came from.
+export async function createOrders(rep, body = {}, opts = {}) {
   const { lines, customer = {}, notes, repDiscountPct, cardOnFile } = body;
   const discountPct = cache.config?.discountPct ?? 50;
 
   const { ready, backorder } = splitLines(lines);
   if (ready.length === 0 && backorder.length === 0) throw new Error('No valid line items');
 
-  const { lineItems: readyItems, subtotal: readySubtotal } = priceLines(ready, discountPct);
-  const { lineItems: backItems, subtotal: backSubtotal } = priceLines(backorder, discountPct);
+  const { lineItems: readyItems, subtotal: readySubtotal, unitPrices: readyPrices } = priceLines(ready, discountPct);
+  const { lineItems: backItems, subtotal: backSubtotal, unitPrices: backPrices } = priceLines(backorder, discountPct);
   const totalSubtotal = round2(readySubtotal + backSubtotal);
 
   // Resolve the customer once (shared across both draft orders); tags come back fresh from
@@ -173,9 +227,14 @@ export async function createOrders(rep, body = {}) {
       `Deposit required: ${depositPct}% ($${depositAmount.toFixed(2)}) due now (${tierLabel}); ` +
       `balance $${balanceAmount.toFixed(2)} due when items ship.`;
 
+    const invoiceDeposit = cfg.depositInvoices && depositAmount > 0;
+    const backTags = [...baseTags, 'backorder', 'deposit-required', `deposit-pct:${depositPct}`];
+    // 'deposit-invoiced' tells the checkout queue the money to collect now is on the separate
+    // deposit draft, not on this one.
+    if (invoiceDeposit) backTags.push('deposit-invoiced');
     result.backorder = await submitDraftOrder({
       lineItems: backItems,
-      tags: [...baseTags, 'backorder', 'deposit-required', `deposit-pct:${depositPct}`],
+      tags: backTags,
       customAttributes: [
         ...baseAttrs,
         { key: 'Customer tier', value: tierLabel },
@@ -192,6 +251,82 @@ export async function createOrders(rep, body = {}) {
     result.backorder.depositAmount = depositAmount;
     result.backorder.balanceAmount = balanceAmount;
     result.backorder.customerTier = tierLabel;
+    result.backorder.subtotal = backSubtotal;
+    result.backorder.tags = backTags;
+
+    if (invoiceDeposit) {
+      // The deposit is its own draft order with one custom line, paid now. The goods stay on
+      // the backorder draft, which is credited with the deposit when the balance is prepared.
+      try {
+        result.deposit = await submitDraftOrder({
+          lineItems: [
+            {
+              title: `Deposit ${depositPct}% — backorder ${result.backorder.name}`,
+              originalUnitPrice: depositAmount,
+              quantity: 1,
+              taxable: false,
+              requiresShipping: false,
+            },
+          ],
+          tags: [...baseTags, 'deposit-invoice'],
+          customAttributes: [
+            ...baseAttrs,
+            { key: 'Deposit for', value: result.backorder.name },
+            { key: 'Customer tier', value: tierLabel },
+          ],
+          note: `Deposit for backorder ${result.backorder.name}. Balance $${balanceAmount.toFixed(2)} is invoiced when the goods arrive.`,
+          customerId,
+          customer,
+          volumeDiscountPct: 0,
+          shippingAddress: shipAddress,
+        });
+        result.deposit.amount = depositAmount;
+        result.deposit.pct = depositPct;
+        result.deposit.status = 'open';
+      } catch (err) {
+        // No deposit draft: put the backorder draft back to the single-draft flow so the
+        // checkout queue still shows the deposit to collect on it.
+        console.error('[orders] deposit draft failed for', result.backorder.name, err);
+        result.deposit = null;
+        result.backorder.tags = backTags.filter((t) => t !== 'deposit-invoiced');
+        await updateDraftOrder(result.backorder.id, { tags: result.backorder.tags }).catch((e) =>
+          console.error('[orders] could not untag', result.backorder.name, e)
+        );
+      }
+    }
+  }
+
+  // Record the order and reserve where each unit comes from. The drafts already exist in
+  // Shopify at this point, so a failure here must never fail the sale: log it and carry on.
+  try {
+    const byVariant = new Map();
+    const entry = (v) => {
+      if (!byVariant.has(v.id)) {
+        byVariant.set(v.id, {
+          variantId: v.id,
+          sku: v.sku,
+          title: [v.productTitle, v.title !== 'Default Title' ? v.title : null].filter(Boolean).join(' — '),
+          unitPrice: readyPrices.get(v.id) ?? backPrices.get(v.id) ?? null,
+          readyQty: 0,
+          backorderQty: 0,
+        });
+      }
+      return byVariant.get(v.id);
+    };
+    for (const { v, qty } of ready) entry(v).readyQty += qty;
+    for (const { v, qty } of backorder) entry(v).backorderQty += qty;
+    result.orderId = await recordOrder({
+      rep,
+      customer: { id: customerId || null, name: customer.name || null, email: customer.email || null, phone: customer.phone || null, isRepeat: !!isRepeat },
+      entries: [...byVariant.values()],
+      result: { ready: result.ready, backorder: result.backorder, deposit: result.deposit || null },
+      pendingId: opts.pendingId,
+      notes,
+      volumeDiscountPct: applied,
+      subtotal: totalSubtotal,
+    });
+  } catch (err) {
+    console.error('[orderbook] could not record order', result.ready?.name, result.backorder?.name, err);
   }
 
   return result;

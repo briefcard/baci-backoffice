@@ -117,12 +117,26 @@ export function Cart({ config, availability, onClose, onFinished, onDiscard, pen
               <div className="done-order">
                 <h2>Draft order {done.backorder.name} created</h2>
                 <div className="muted small">
-                  Backorder · {done.backorder.customerTier} · deposit {done.backorder.depositPct}% (
-                  {money(done.backorder.depositAmount, currency)}) due now, balance{' '}
-                  {money(done.backorder.balanceAmount, currency)} due at fulfillment
+                  Backorder · {done.backorder.customerTier} ·{' '}
+                  {done.deposit
+                    ? `balance ${money(done.backorder.balanceAmount, currency)} invoiced when the goods arrive`
+                    : `deposit ${done.backorder.depositPct}% (${money(done.backorder.depositAmount, currency)}) due now, balance ${money(done.backorder.balanceAmount, currency)} due at fulfillment`}
                 </div>
                 {done.backorder.invoiceUrl && (
                   <a className="link" href={done.backorder.invoiceUrl} target="_blank" rel="noreferrer">
+                    Open in Shopify ▸
+                  </a>
+                )}
+              </div>
+            )}
+            {done.deposit && (
+              <div className="done-order">
+                <h2>Deposit invoice {done.deposit.name} created</h2>
+                <div className="muted small">
+                  {done.deposit.pct}% deposit · {money(done.deposit.amount, currency)} to collect now
+                </div>
+                {done.deposit.invoiceUrl && (
+                  <a className="link" href={done.deposit.invoiceUrl} target="_blank" rel="noreferrer">
                     Open in Shopify ▸
                   </a>
                 )}

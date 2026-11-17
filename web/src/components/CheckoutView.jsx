@@ -101,13 +101,17 @@ export function CheckoutView({ config }) {
 
 function CheckoutRow({ d, currency, completed }) {
   const isBackorder = d.type === 'backorder';
+  const isDeposit = d.type === 'deposit';
+  // A backorder whose deposit is on its own invoice has nothing to collect until its balance
+  // invoice is prepared in the Orders tab.
+  const waiting = isBackorder && d.depositInvoiced && !d.balanceReady;
   return (
     <div className={`co-row ${completed ? 'is-done' : ''}`}>
       <div className="co-main">
         <div className="co-line1">
           <span className="co-name">{d.name}</span>
-          <span className={`badge ${isBackorder ? 'warn' : 'ready'}`}>
-            {isBackorder ? 'Deposit' : d.type === 'ready' ? 'Ready' : 'Order'}
+          <span className={`badge ${isBackorder || isDeposit ? 'warn' : 'ready'}`}>
+            {isDeposit ? 'Deposit' : isBackorder ? (d.balanceReady ? 'Balance' : d.depositInvoiced ? 'Backorder' : 'Deposit') : d.type === 'ready' ? 'Ready' : 'Order'}
           </span>
           {d.cardOnFile && <span className="badge card">💳 Save card</span>}
           {completed && <span className="badge done">Paid</span>}
@@ -117,7 +121,14 @@ function CheckoutRow({ d, currency, completed }) {
           {d.rep ? ` · ${d.rep}` : ''}
           {isBackorder && d.customerTier ? ` · ${d.customerTier}` : ''}
         </div>
-        {isBackorder && (
+        {isDeposit && d.depositFor && <div className="co-line3 small">Deposit for backorder {d.depositFor}</div>}
+        {waiting && (
+          <div className="co-line3 small">
+            Nothing to collect yet. The balance is invoiced from the Orders tab once the goods arrive.
+          </div>
+        )}
+        {isBackorder && d.balanceReady && <div className="co-line3 small">Balance after the deposit already paid</div>}
+        {isBackorder && !d.depositInvoiced && (
           <div className="co-line3 small">
             Deposit {d.depositPct != null ? `${d.depositPct}% ` : ''}
             <strong>{money(d.depositAmount ?? d.dueNow, currency)}</strong> now · balance{' '}
@@ -130,7 +141,7 @@ function CheckoutRow({ d, currency, completed }) {
           <span className="co-due-lbl">{completed ? 'Total' : 'Collect now'}</span>
           <span className="co-due-amt">{money(d.dueNow, currency)}</span>
         </div>
-        {!completed && (
+        {!completed && !waiting && (
           <a className="primary small pay-btn" href={d.adminUrl} target="_blank" rel="noreferrer">
             Take payment ▸
           </a>
