@@ -209,3 +209,23 @@ CREATE INDEX IF NOT EXISTS idx_allocations_shipment_line ON allocations(shipment
 -- now, and the backorder draft is credited with it when the balance is prepared.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS deposit_draft JSONB;   -- { id, name, amount, pct, invoiceUrl, status: open|paid, paidAt }
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS balance JSONB;         -- { amount, credit, preparedAt, preparedBy }
+
+-- Order page (added later; idempotent).
+-- payment: what Shopify says about each of the order's drafts, refreshed on read:
+--   { ready|backorder|deposit: { status, order, financialStatus, fulfillmentStatus, verified } }
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment JSONB;
+
+-- What happened to an order after it was placed. needs_review marks changes a person should
+-- look at before the client is told (units lost their shipment, an arrival date slipped).
+CREATE TABLE IF NOT EXISTS order_events (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  kind TEXT NOT NULL,          -- created | deposit_paid | balance_prepared | units_released | units_sourced | eta_changed
+  detail JSONB,
+  needs_review BOOLEAN NOT NULL DEFAULT false,
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_events_review ON order_events(needs_review) WHERE needs_review;

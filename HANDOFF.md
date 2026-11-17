@@ -352,3 +352,11 @@ Phase 0 + first half of phase 1 of the procurement/tracking plan. Run `cd server
   shipment + ETA, and units on no shipment; read-only. `Cart.jsx` shows it under backorder lines,
   with in-stock substitutes. A shipment ETA is whatever is typed on the shipment (or sent by the
   WhatsApp agent); nothing reads arrival dates from email automatically yet.
+
+- **Order page (2026-11-17, branch, NOT merged):** Orders tab = searchable list + a page per order
+  (`OrdersView.jsx`): items and sources, money per draft as Shopify has it (`orders.payment`, refreshed
+  on read by `refreshDeposits`), linked shipments with their document checklist, history.
+  `order_events` records created / deposit_paid / balance_prepared / units_released / units_sourced /
+  eta_changed; `needs_review` flags releases and later-or-removed ETAs (`noteEtaChange` on shipment
+  update, `reconcile`). `POST /api/orders/:id/events/:eventId/review` marks one handled. Internal staff
+  only: there is no client-facing view.

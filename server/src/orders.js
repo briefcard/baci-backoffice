@@ -118,7 +118,7 @@ export async function updateDraftOrder(id, input) {
 
 const draftStatusQuery = (withOrder) => `
 query DraftStatus${withOrder ? 'WithOrder' : ''}($ids: [ID!]!) {
-  nodes(ids: $ids) { ... on DraftOrder { id status completedAt${withOrder ? ' order { id name displayFinancialStatus }' : ''} } }
+  nodes(ids: $ids) { ... on DraftOrder { id status completedAt${withOrder ? ' order { id name displayFinancialStatus displayFulfillmentStatus }' : ''} } }
 }`;
 
 // Status of draft orders by id: Map id -> { status: OPEN | INVOICE_SENT | COMPLETED,
@@ -143,7 +143,9 @@ export async function draftOrderStatuses(ids) {
       out.set(n.id, {
         status: n.status,
         completedAt: n.completedAt,
-        order: n.order ? { id: n.order.id, name: n.order.name, financialStatus: n.order.displayFinancialStatus } : null,
+        order: n.order
+          ? { id: n.order.id, name: n.order.name, financialStatus: n.order.displayFinancialStatus, fulfillmentStatus: n.order.displayFulfillmentStatus }
+          : null,
         verified: withOrder,
       });
     }

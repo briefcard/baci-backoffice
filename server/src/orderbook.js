@@ -22,7 +22,7 @@ import { pool, q } from './db.js';
 import { listShipments } from './inbound.js';
 
 const OPEN_STATUSES = ['ordered', 'in_transit', 'arrived', 'receiving'];
-const mem = { orders: new Map(), lines: new Map(), allocs: new Map() };
+const mem = { orders: new Map(), lines: new Map(), allocs: new Map(), events: new Map() };
 
 // All reads-then-writes of allocations run one at a time (single web process), so two orders
 // placed in the same instant cannot both reserve the same units.
@@ -91,6 +91,64 @@ async function deleteAllocation(id) {
     return;
   }
   await q('DELETE FROM allocations WHERE id=$1', [id]);
+}
+
+// ---- order events ----
+
+// Record something that happened to an order. needsReview = a person should look at it.
+export async function addEvent(orderId, kind, detail = {}, needsReview = false) {
+  const ev = { id: crypto.randomUUID(), orderId, at: new Date().toISOString(), kind, detail, needsReview: !!needsReview, reviewedBy: null, reviewedAt: null };
+  if (!pool) {
+    mem.events.set(ev.id, ev);
+    return ev;
+  }
+  await q('INSERT INTO order_events (id, order_id, at, kind, detail, needs_review) VALUES ($1,$2,$3,$4,$5,$6)', [
+    ev.id, orderId, ev.at, kind, JSON.stringify(detail), ev.needsReview,
+  ]);
+  return ev;
+}
+
+const eventRow = (r) => ({
+  id: r.id, orderId: r.order_id, at: iso(r.at), kind: r.kind, detail: r.detail || {}, needsReview: r.needs_review,
+  reviewedBy: r.reviewed_by, reviewedAt: iso(r.reviewed_at),
+});
+
+// Events for the given orders (all orders when ids is omitted), oldest first.
+export async function listEvents(orderIds) {
+  if (!pool) {
+    return [...mem.events.values()].filter((e) => !orderIds || orderIds.includes(e.orderId)).sort((a, b) => a.at.localeCompare(b.at));
+  }
+  const { rows } = orderIds
+    ? await q('SELECT * FROM order_events WHERE order_id = ANY($1::text[]) ORDER BY at', [orderIds])
+    : await q('SELECT * FROM order_events ORDER BY at');
+  return rows.map(eventRow);
+}
+
+// A person has dealt with the change (re-sourced it, told the client).
+export async function reviewEvent(eventId, by) {
+  const at = new Date().toISOString();
+  if (!pool) {
+    const e = mem.events.get(eventId);
+    if (!e) return null;
+    Object.assign(e, { needsReview: false, reviewedBy: by, reviewedAt: at });
+    return e;
+  }
+  const { rows } = await q('UPDATE order_events SET needs_review=false, reviewed_by=$2, reviewed_at=$3 WHERE id=$1 RETURNING *', [eventId, by, at]);
+  return rows[0] ? eventRow(rows[0]) : null;
+}
+
+// A shipment's arrival date changed: note it on every order holding units on that shipment.
+// Later than before (or the date removed) needs a person's review; earlier is just recorded.
+export async function noteEtaChange(before, after) {
+  if (!before || !after || (before.eta || null) === (after.eta || null)) return 0;
+  const held = (await loadAllocations()).filter((a) => a.source === 'shipment' && a.shipmentId === after.id);
+  const byOrder = new Map();
+  for (const a of held) byOrder.set(a.orderId, (byOrder.get(a.orderId) || 0) + a.quantity);
+  const later = !after.eta || (before.eta && after.eta > before.eta);
+  for (const [orderId, units] of byOrder) {
+    await addEvent(orderId, 'eta_changed', { shipmentId: after.id, reference: after.reference || after.origin || null, from: before.eta || null, to: after.eta || null, units }, later);
+  }
+  return byOrder.size;
 }
 
 // ---- supply ----
@@ -194,6 +252,7 @@ export function recordOrder({ rep, customer, entries, result, pendingId, notes, 
       backorderDraft: result?.backorder || null,
       depositDraft: result?.deposit || null,
       balance: null,
+      payment: null,
       createdAt: new Date().toISOString(),
     };
     const lines = entries.map((e) => ({
@@ -240,6 +299,7 @@ export function recordOrder({ rep, customer, entries, result, pendingId, notes, 
       }
     }
     for (const a of allocs) await insertAllocation(a);
+    await addEvent(order.id, 'created', { by: order.repName || order.repEmail || null });
     return order.id;
   });
 }
@@ -319,6 +379,30 @@ export function reconcile() {
         a.quantity = 0;
       }
     }
+    // One event per order and shipment: units that lost their shipment need a person's review;
+    // units that found one are good news, recorded only.
+    const shipOf = (id) => shipments.find((x) => x.id === id);
+    const refOf = (id) => { const s = shipOf(id); return s ? s.reference || s.origin || null : null; };
+    const grouped = new Map();
+    for (const c of changes) {
+      const key = `${c.orderId}|${c.from || ''}|${c.to || ''}|${c.why || ''}`;
+      if (!grouped.has(key)) grouped.set(key, { ...c, quantity: 0 });
+      grouped.get(key).quantity += c.quantity;
+    }
+    // Releases first, so a release and its replacement in the same pass pair up below.
+    const ordered = [...grouped.values()].sort((a, b) => Number(!!a.to) - Number(!!b.to));
+    for (const c of ordered) {
+      if (!c.to) {
+        await addEvent(c.orderId, 'units_released', { units: c.quantity, shipmentId: c.from, reference: refOf(c.from), why: c.why || null }, true);
+        continue;
+      }
+      // Units found a shipment. If this order had an open "lost their shipment" flag, that flag
+      // is now out of date: close it, and flag the replacement instead, because the client's
+      // arrival date has changed.
+      const stale = (await listEvents([c.orderId])).filter((e) => e.kind === 'units_released' && e.needsReview);
+      for (const e of stale) await reviewEvent(e.id, 'auto: units re-sourced');
+      await addEvent(c.orderId, 'units_sourced', { units: c.quantity, shipmentId: c.to, reference: refOf(c.to), eta: shipOf(c.to)?.eta || null, replaces: stale.length > 0 }, stale.length > 0);
+    }
     return changes;
   });
 }
@@ -337,7 +421,7 @@ export function setOrderFirm(orderId, firm) {
 
 // Update the draft/deposit/balance records kept on an order.
 export async function updateOrder(id, fields) {
-  const cols = { depositDraft: 'deposit_draft', balance: 'balance', backorderDraft: 'backorder_draft' };
+  const cols = { depositDraft: 'deposit_draft', balance: 'balance', backorderDraft: 'backorder_draft', payment: 'payment' };
   if (!pool) {
     const o = mem.orders.get(id);
     if (o) for (const k of Object.keys(cols)) if (fields[k] !== undefined) o[k] = fields[k];
@@ -410,7 +494,7 @@ export async function listOrders({ limit = 100 } = {}) {
       {
         id: r.id, status: r.status, customer: r.customer, repEmail: r.rep_email, repName: r.rep_name, pendingId: r.pending_id,
         notes: r.notes, volumeDiscountPct: Number(r.volume_discount_pct), subtotal: r.subtotal != null ? Number(r.subtotal) : null,
-        readyDraft: r.ready_draft, backorderDraft: r.backorder_draft, depositDraft: r.deposit_draft, balance: r.balance,
+        readyDraft: r.ready_draft, backorderDraft: r.backorder_draft, depositDraft: r.deposit_draft, balance: r.balance, payment: r.payment || null,
         createdAt: iso(r.created_at),
       },
       lr.filter((l) => l.order_id === r.id).map((l) => ({
