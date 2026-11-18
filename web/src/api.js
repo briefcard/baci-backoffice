@@ -59,6 +59,20 @@ export const api = {
   orderEventReview: (id, eventId) => jpost(`/api/orders/${encodeURIComponent(id)}/events/${encodeURIComponent(eventId)}/review`, {}),
   orderAvailability: (lines) => jpost('/api/orders/availability', { lines }),
   orderBalance: (id, body) => jpost(`/api/orders/${encodeURIComponent(id)}/balance`, body || {}),
+  intake: () => jget('/api/intake'),
+  intakeUpload: async (file) => {
+    const fd = new FormData();
+    fd.append('source', 'upload');
+    fd.append('file', file);
+    const r = await fetch('/api/intake', { method: 'POST', credentials: 'include', body: fd });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `Upload failed (${r.status})`);
+    return body;
+  },
+  intakeAssign: (id, body) => jpost(`/api/intake/${encodeURIComponent(id)}/assign`, body),
+  intakeIgnore: (id) => jpost(`/api/intake/${encodeURIComponent(id)}/ignore`, {}),
+  refAdd: (shipmentId, body) => jpost(`/api/inbound/${encodeURIComponent(shipmentId)}/refs`, body),
+  refRemove: (shipmentId, refId) => jpost(`/api/inbound/${encodeURIComponent(shipmentId)}/refs/${encodeURIComponent(refId)}/remove`, {}),
   inboundResync: (id) => jpost(`/api/inbound/${encodeURIComponent(id)}/resync`),
   inboundRematch: (id) => jpost(`/api/inbound/${encodeURIComponent(id)}/rematch`),
   inboundDocs: (id) => jget(`/api/inbound/${encodeURIComponent(id)}/documents`),

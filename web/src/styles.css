@@ -753,3 +753,20 @@ button.ord-attn-main { cursor: pointer; }
 @media (max-width: 520px) { .ord-event { grid-template-columns: 1fr; gap: 0; } }
 .ord-attn-row .small-btn, .ord-money .small-btn { width: auto; flex: none; white-space: nowrap; }
 .ord-attn-main { flex: 1; }
+
+/* Documents inbox + shipment reference numbers */
+.docs-inbox { display: grid; gap: 10px; }
+.docs-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.docs-head .small-btn { width: auto; flex: none; white-space: nowrap; }
+.doc-row { display: flex; justify-content: space-between; gap: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.doc-main { display: grid; gap: 4px; min-width: 0; }
+.doc-name { font-weight: 600; overflow-wrap: anywhere; }
+.doc-refs { display: flex; gap: 6px; flex-wrap: wrap; }
+.doc-side { display: grid; gap: 6px; justify-items: end; align-content: start; min-width: 240px; max-width: 320px; }
+.doc-side select { width: 100%; }
+.doc-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.doc-btns .small-btn, .doc-btns .primary { width: auto; flex: none; white-space: nowrap; }
+.ship-refs { display: grid; gap: 6px; margin: 10px 0; }
+.ship-refs .inb-add select { flex: none; }
+.ref-x { background: none; border: 0; cursor: pointer; margin-left: 4px; color: inherit; font-size: 11px; padding: 0; }
+@media (max-width: 620px) { .doc-row { flex-direction: column; } .doc-side { justify-items: start; max-width: none; } .doc-btns { justify-content: flex-start; } }
