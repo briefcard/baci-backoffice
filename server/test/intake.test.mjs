@@ -90,3 +90,59 @@ test('a document with no home can start a shipment, lines and numbers included',
   assert.deepEqual((await listRefs([res.shipment.id])).map((r) => r.key).sort(), ['880/2026', '900/2026']);
   assert.equal((await getIntakeDoc(document.id)).shipmentId, res.shipment.id);
 });
+
+const { applyPreview, applyDocument } = await import('../src/intakeDocs.js');
+const { getShipment } = await import('../src/inbound.js');
+
+test('applying documents fills the shipment in: prices and origin from the invoice, volume from the packing list', async () => {
+  const ship = await createShipment('test', { reference: '1200/2026', status: 'ordered', lines: [{ sku: 'CUP1.ZOD01', expected: 700 }, { sku: 'OLD.ITEM01', expected: 5 }] });
+  // what a reader extracted from the supplier invoice for this order
+  const inv = await ingestDocument({
+    filename: 'INVOICE_1300.pdf', hash: 'h-inv-1300', docType: 'invoice',
+    refs: [{ kind: 'supplier_invoice', value: '1300/2026' }, { kind: 'italy_order', value: '1200/2026' }],
+    extracted: { invoiceTotal: 6510, incoterm: 'EXW', paymentTerms: '100 % IN ADVANCE', lines: [
+      { sku: 'CUP1.ZOD01', expected: 752, unitPrice: 7.5, currency: 'EUR', madeIn: 'BANGLADESH', hsCode: '69111000' },
+      { sku: 'CUP1.ZOD02', expected: 116, unitPrice: 7.5, currency: 'EUR', madeIn: 'BANGLADESH', hsCode: '69111000' }] },
+  }, 't');
+  assert.equal(inv.document.status, 'matched');
+
+  const pre = await applyPreview(inv.document.id);
+  assert.equal(pre.lineUpdates, 1);
+  assert.deepEqual(pre.fields.sort(), ['made-in', 'tariff code', 'unit price']);
+  assert.deepEqual(pre.missing, [{ sku: 'CUP1.ZOD02', expected: 116 }]);
+  assert.deepEqual(pre.qtyDiffs, [{ sku: 'CUP1.ZOD01', shipment: 700, document: 752 }]);
+  assert.deepEqual(pre.notOnDocument, ['OLD.ITEM01']);
+  assert.deepEqual(pre.header.map((h) => [h.field, h.to]), [['invoiceTotal', 6510], ['incoterm', 'EXW'], ['paymentTerms', '100 % IN ADVANCE']]);
+  // the preview changed nothing
+  assert.equal((await getShipment(ship.id)).lines[0].unitCost, null);
+
+  // default apply: details and header only; quantities and new lines are opt-in
+  await applyDocument(inv.document.id, {}, 'staff@test');
+  let s = await getShipment(ship.id);
+  const zod1 = () => s.lines.find((l) => l.sku === 'CUP1.ZOD01');
+  assert.deepEqual([zod1().unitCost, zod1().currency, zod1().madeIn, zod1().hsCode, zod1().expected], [7.5, 'EUR', 'BANGLADESH', '69111000', 700]);
+  assert.deepEqual([s.invoiceTotal, s.incoterm, s.paymentTerms, s.lines.length], [6510, 'EXW', '100 % IN ADVANCE', 2]);
+  assert.equal((await getIntakeDoc(inv.document.id)).applied.by, 'staff@test');
+
+  // the packing list brings volume, and this time quantities and the missing line are accepted
+  const pk = await ingestDocument({ filename: 'PKLIST_1400.xlsx', buffer: packingList({ number: '1400/2026', orders: '1200/2026', rows: [['CUP1.ZOD01', 'ARIES', 752, 94, 353.44, 444.62, 1.318], ['CUP1.ZOD02', 'TAURUS', 116, 15, 54.5, 68.6, 0.21]] }) }, 't');
+  assert.equal(pk.document.shipmentId, ship.id);
+  const res = await applyDocument(pk.document.id, { addMissing: true, setQuantities: true }, 'staff@test');
+  assert.deepEqual([res.summary.added, res.summary.quantitiesSet], [1, 1]);
+  s = await getShipment(ship.id);
+  assert.deepEqual([zod1().expected, zod1().cartons, zod1().cbm, zod1().unitCost], [752, 94, 1.318, 7.5]); // price kept
+  assert.deepEqual(s.lines.map((l) => l.sku).sort(), ['CUP1.ZOD01', 'CUP1.ZOD02', 'OLD.ITEM01']);
+  assert.equal(s.invoiceTotal, 6510); // a packing list never touches money
+  // nothing left to apply
+  assert.equal((await applyPreview(pk.document.id)).nothing, true);
+});
+
+test('a forwarder notice read elsewhere moves the arrival date once applied', async () => {
+  const ship = await createShipment('test', { reference: '1500/2026', status: 'in_transit', eta: '2026-12-18' });
+  await addRef(ship.id, { kind: 'forwarder_file', value: 'FF-88001' }, 't');
+  const n = await ingestDocument({ filename: 'arrival.pdf', hash: 'h-arr-88001', docType: 'arrival_notice', refs: [{ kind: 'forwarder_file', value: 'FF 88001' }], extracted: { eta: '2027-01-06', carrier: 'MSC', container: 'MSCU7654321' } }, 'agent@whatsapp');
+  assert.equal(n.document.shipmentId, ship.id);
+  assert.deepEqual((await applyPreview(n.document.id)).header.map((h) => [h.field, h.from, h.to]), [['eta', '2026-12-18', '2027-01-06'], ['carrier', null, 'MSC'], ['tracking', null, 'MSCU7654321']]);
+  const res = await applyDocument(n.document.id, {}, 'staff@test');
+  assert.deepEqual([res.before.eta, res.shipment.eta, res.shipment.carrier, res.shipment.tracking], ['2026-12-18', '2027-01-06', 'MSC', 'MSCU7654321']);
+});

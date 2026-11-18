@@ -270,3 +270,17 @@ CREATE TABLE IF NOT EXISTS intake_documents (
 );
 CREATE INDEX IF NOT EXISTS idx_intake_documents_hash ON intake_documents(hash);
 CREATE INDEX IF NOT EXISTS idx_intake_documents_status ON intake_documents(status);
+
+-- What supplier documents say about each shipment line (added later; idempotent). Filled by
+-- "Apply to shipment" on a filed document, never typed from memory.
+ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS unit_cost NUMERIC;   -- supplier unit price
+ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS currency TEXT;       -- of unit_cost (EUR)
+ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS made_in TEXT;        -- country of origin: sets the duty
+ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS hs_code TEXT;        -- tariff code
+ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS cartons NUMERIC;
+ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS net_kg NUMERIC;
+ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS gross_kg NUMERIC;
+ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS cbm NUMERIC;         -- volume: the basis for splitting sea freight
+ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS incoterm TEXT;       -- EXW | FOB <port>
+ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS payment_terms TEXT;
+ALTER TABLE intake_documents ADD COLUMN IF NOT EXISTS applied JSONB;        -- { at, by, summary } once applied

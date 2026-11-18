@@ -857,6 +857,17 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
                 <span className={l.variantId ? 'small' : 'small err-inline'}>
                   {l.title || (l.variantId ? '' : 'not in catalog')}
                 </span>
+                {(l.unitCost != null || l.madeIn || l.cbm != null) && (
+                  <span className="small muted">
+                    {[
+                      l.unitCost != null ? `${l.currency === 'EUR' || !l.currency ? '€' : `${l.currency} `}${Number(l.unitCost).toFixed(2)} each` : null,
+                      l.madeIn ? `made in ${l.madeIn[0]}${l.madeIn.slice(1).toLowerCase()}` : null,
+                      l.hsCode ? `tariff ${l.hsCode}` : null,
+                      l.cartons != null ? `${l.cartons} cartons` : null,
+                      l.cbm != null ? `${l.cbm} m³` : null,
+                    ].filter(Boolean).join(' · ')}
+                  </span>
+                )}
                 {l.reserved > 0 && (
                   <span className="small muted">
                     {l.reserved} of {l.expected} reserved for client orders

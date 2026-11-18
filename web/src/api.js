@@ -70,6 +70,8 @@ export const api = {
     return body;
   },
   intakeAssign: (id, body) => jpost(`/api/intake/${encodeURIComponent(id)}/assign`, body),
+  intakeApplyPreview: (id) => jget(`/api/intake/${encodeURIComponent(id)}/apply`),
+  intakeApply: (id, body) => jpost(`/api/intake/${encodeURIComponent(id)}/apply`, body || {}),
   intakeIgnore: (id) => jpost(`/api/intake/${encodeURIComponent(id)}/ignore`, {}),
   refAdd: (shipmentId, body) => jpost(`/api/inbound/${encodeURIComponent(shipmentId)}/refs`, body),
   refRemove: (shipmentId, refId) => jpost(`/api/inbound/${encodeURIComponent(shipmentId)}/refs/${encodeURIComponent(refId)}/remove`, {}),

@@ -770,3 +770,7 @@ button.ord-attn-main { cursor: pointer; }
 .ship-refs .inb-add select { flex: none; }
 .ref-x { background: none; border: 0; cursor: pointer; margin-left: 4px; color: inherit; font-size: 11px; padding: 0; }
 @media (max-width: 620px) { .doc-row { flex-direction: column; } .doc-side { justify-items: start; max-width: none; } .doc-btns { justify-content: flex-start; } }
+.apply-list { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+.apply-opt { display: flex; gap: 8px; align-items: flex-start; }
+.apply-opt input { margin-top: 2px; flex: none; }
+.doc-side .small-btn { width: auto; flex: none; white-space: nowrap; }

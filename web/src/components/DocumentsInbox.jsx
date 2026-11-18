@@ -31,6 +31,15 @@ export function DocumentsInbox({ ships, onChanged }) {
   const [busy, setBusy] = useState('');
   const [pick, setPick] = useState({}); // doc id -> chosen shipment id
   const fileRef = useRef(null);
+  const [applying, setApplying] = useState(null); // { id, preview }
+  const openApply = async (d) => {
+    setErr('');
+    try {
+      setApplying({ id: d.id, preview: (await api.intakeApplyPreview(d.id)).preview });
+    } catch (e) {
+      setErr(e?.message || 'Could not work out the changes');
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -104,12 +113,20 @@ export function DocumentsInbox({ ships, onChanged }) {
           )}
           {x?.checks?.badLines?.length > 0 && <div className="err-inline small">Quantity × price does not match the line total on: {x.checks.badLines.join(', ')}</div>}
           {x?.unmatchedCount > 0 && <div className="muted small">{x.unmatchedCount} of {x.lines.length} item codes are not in the catalog</div>}
+          {applying?.id === d.id && <ApplyPanel preview={applying.preview} onCancel={() => setApplying(null)} onApply={(opts) => act(async () => { await api.intakeApply(d.id, opts); setApplying(null); })} />}
         </div>
 
         {d.status === 'matched' ? (
           <div className="doc-side">
             <span className="badge ready">Filed</span>
             <span className="small">{d.shipment ? shipName(d.shipment) : ''}</span>
+            {d.applied ? (
+              <span className="muted small">{d.applied.summary?.created ? 'Shipment created from it' : 'Applied to the shipment'}</span>
+            ) : (
+              d.extracted && applying?.id !== d.id && (
+                <button className="secondary small-btn" onClick={() => openApply(d)}>Apply to shipment</button>
+              )
+            )}
           </div>
         ) : (
           <div className="doc-side">
@@ -160,6 +177,49 @@ export function DocumentsInbox({ ships, onChanged }) {
       <div className="lane-head">Filed · {filed.length}</div>
       {filed.length === 0 && <div className="muted small">Nothing filed yet.</div>}
       {filed.map(row)}
+    </div>
+  );
+}
+
+// What applying a document would change, shown before anything changes.
+function ApplyPanel({ preview: p, onCancel, onApply }) {
+  const [addMissing, setAddMissing] = useState(p.missing.length > 0 && p.lineUpdates === 0);
+  const [setQuantities, setSetQuantities] = useState(false);
+  const fmt = (v) => (v == null || v === '' ? 'empty' : String(v));
+  if (p.nothing) {
+    return (
+      <div className="ord-confirm">
+        <div className="small">This document adds nothing new to shipment {p.shipment.reference || ''}.</div>
+        <div className="ord-confirm-btns"><button className="link" onClick={onCancel}>Close</button></div>
+      </div>
+    );
+  }
+  return (
+    <div className="ord-confirm">
+      <div className="small"><strong>Applying this to shipment {p.shipment.reference || p.shipment.origin || ''} will:</strong></div>
+      <ul className="apply-list small">
+        {p.lineUpdates > 0 && <li>Fill in {p.fields.join(', ')} on {p.lineUpdates} line{p.lineUpdates === 1 ? '' : 's'}</li>}
+        {p.header.map((h) => (
+          <li key={h.field}>{h.label}: {fmt(h.from)} → <strong>{fmt(h.to)}</strong></li>
+        ))}
+      </ul>
+      {p.missing.length > 0 && (
+        <label className="apply-opt small">
+          <input type="checkbox" checked={addMissing} onChange={(e) => setAddMissing(e.target.checked)} />
+          Add {p.missing.length} item{p.missing.length === 1 ? '' : 's'} that the shipment does not list yet ({p.missing.slice(0, 4).map((m) => m.sku).join(', ')}{p.missing.length > 4 ? '…' : ''})
+        </label>
+      )}
+      {p.qtyDiffs.length > 0 && (
+        <label className="apply-opt small">
+          <input type="checkbox" checked={setQuantities} onChange={(e) => setSetQuantities(e.target.checked)} />
+          Change {p.qtyDiffs.length} quantit{p.qtyDiffs.length === 1 ? 'y' : 'ies'} to the document's ({p.qtyDiffs.slice(0, 3).map((q) => `${q.sku} ${q.shipment} → ${q.document}`).join(', ')}{p.qtyDiffs.length > 3 ? '…' : ''}). Units reserved for client orders are re-checked.
+        </label>
+      )}
+      {p.notOnDocument.length > 0 && <div className="muted small">{p.notOnDocument.length === 1 ? '1 shipment item is not on this document and stays as it is.' : `${p.notOnDocument.length} shipment items are not on this document and stay as they are.`}</div>}
+      <div className="ord-confirm-btns">
+        <button className="primary small" onClick={() => onApply({ addMissing, setQuantities })}>Apply</button>
+        <button className="link" onClick={onCancel}>Cancel</button>
+      </div>
     </div>
   );
 }

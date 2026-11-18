@@ -25,6 +25,7 @@ export const SHIPMENT_STATUSES = ['draft', 'ordered', 'in_transit', 'arrived', '
 const OPEN_STATUSES = ['ordered', 'in_transit', 'arrived', 'receiving'];
 
 const s = (v, n = 300) => (v == null ? null : String(v).slice(0, n));
+const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
 function sanitizeLines(lines) {
   const out = [];
@@ -48,6 +49,15 @@ function sanitizeLines(lines) {
       syncError: l.syncError || null,
       receivedAt: l.receivedAt || null,
       receivedBy: l.receivedBy || null,
+      // from supplier documents (see intakeDocs.applyDocument)
+      unitCost: num(l.unitCost),
+      currency: s(l.currency, 3),
+      madeIn: s(l.madeIn, 40),
+      hsCode: s(l.hsCode, 14),
+      cartons: num(l.cartons),
+      netKg: num(l.netKg),
+      grossKg: num(l.grossKg),
+      cbm: num(l.cbm),
     });
   }
   return out;
@@ -146,6 +156,8 @@ export async function createShipment(by, body = {}) {
     paymentStatus: ['unpaid', 'deposit_paid', 'paid'].includes(body.paymentStatus) ? body.paymentStatus : 'unpaid',
     paidAmount: body.paidAmount != null && body.paidAmount !== '' ? Number(body.paidAmount) : null,
     invoiceTotal: body.invoiceTotal != null && body.invoiceTotal !== '' ? Number(body.invoiceTotal) : null,
+    incoterm: s(body.incoterm, 40),
+    paymentTerms: s(body.paymentTerms, 120),
     timeline: [{ at: now, status: body.status || 'ordered', note: 'Created', by }],
     createdBy: by,
     createdAt: now,
@@ -157,9 +169,9 @@ export async function createShipment(by, body = {}) {
     return ship;
   }
   await q(
-    `INSERT INTO inbound_shipments (id, status, origin, reference, carrier, tracking, eta, notes, timeline, created_by, created_at, updated_at, payment_status, paid_amount, invoice_total)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14)`,
-    [ship.id, ship.status, ship.origin, ship.reference, ship.carrier, ship.tracking, ship.eta, ship.notes, JSON.stringify(ship.timeline), by, now, ship.paymentStatus, ship.paidAmount, ship.invoiceTotal]
+    `INSERT INTO inbound_shipments (id, status, origin, reference, carrier, tracking, eta, notes, timeline, created_by, created_at, updated_at, payment_status, paid_amount, invoice_total, incoterm, payment_terms)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16)`,
+    [ship.id, ship.status, ship.origin, ship.reference, ship.carrier, ship.tracking, ship.eta, ship.notes, JSON.stringify(ship.timeline), by, now, ship.paymentStatus, ship.paidAmount, ship.invoiceTotal, ship.incoterm, ship.paymentTerms]
   );
   for (const l of lines) await insertLine(ship.id, l);
   return ship;
@@ -167,9 +179,11 @@ export async function createShipment(by, body = {}) {
 
 async function insertLine(shipmentId, l) {
   await q(
-    `INSERT INTO inbound_lines (id, shipment_id, variant_id, sku, title, expected, received, damaged, bins, shopify_synced, sync_error, received_at, received_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [l.id, shipmentId, l.variantId, l.sku, l.title, l.expected, l.received, l.damaged, JSON.stringify(l.bins), l.shopifySynced, l.syncError, l.receivedAt, l.receivedBy]
+    `INSERT INTO inbound_lines (id, shipment_id, variant_id, sku, title, expected, received, damaged, bins, shopify_synced, sync_error, received_at, received_by,
+       unit_cost, currency, made_in, hs_code, cartons, net_kg, gross_kg, cbm)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+    [l.id, shipmentId, l.variantId, l.sku, l.title, l.expected, l.received, l.damaged, JSON.stringify(l.bins), l.shopifySynced, l.syncError, l.receivedAt, l.receivedBy,
+      l.unitCost ?? null, l.currency ?? null, l.madeIn ?? null, l.hsCode ?? null, l.cartons ?? null, l.netKg ?? null, l.grossKg ?? null, l.cbm ?? null]
   );
 }
 
@@ -186,6 +200,8 @@ function rowToShipment(r, lines) {
     paymentStatus: r.payment_status || 'unpaid',
     paidAmount: r.paid_amount != null ? Number(r.paid_amount) : null,
     invoiceTotal: r.invoice_total != null ? Number(r.invoice_total) : null,
+    incoterm: r.incoterm || null,
+    paymentTerms: r.payment_terms || null,
     timeline: r.timeline || [],
     createdBy: r.created_by,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
@@ -203,6 +219,14 @@ function rowToShipment(r, lines) {
       syncError: l.sync_error,
       receivedAt: l.received_at instanceof Date ? l.received_at.toISOString() : l.received_at,
       receivedBy: l.received_by,
+      unitCost: num(l.unit_cost),
+      currency: l.currency || null,
+      madeIn: l.made_in || null,
+      hsCode: l.hs_code || null,
+      cartons: num(l.cartons),
+      netKg: num(l.net_kg),
+      grossKg: num(l.gross_kg),
+      cbm: num(l.cbm),
     })),
   };
 }
@@ -238,7 +262,7 @@ export async function updateShipment(id, by, body = {}) {
   if (!ship) return null;
   const now = new Date().toISOString();
   const next = { ...ship };
-  for (const k of ['origin', 'reference', 'carrier', 'tracking', 'notes']) {
+  for (const k of ['origin', 'reference', 'carrier', 'tracking', 'notes', 'incoterm', 'paymentTerms']) {
     if (body[k] !== undefined) next[k] = s(body[k], k === 'notes' ? 2000 : 300);
   }
   if (body.eta !== undefined) next.eta = body.eta ? s(body.eta, 10) : null;
@@ -271,6 +295,10 @@ export async function updateShipment(id, by, body = {}) {
     next.lines = (await resolveLines(sanitizeLines(body.lines))).map((l) => {
       // keep receive state from the existing line with the same id
       const prev = ship.lines.find((x) => x.id === l.id);
+      // The editor sends back sku / title / expected; keep what supplier documents supplied.
+      for (const k of ['unitCost', 'currency', 'madeIn', 'hsCode', 'cartons', 'netKg', 'grossKg', 'cbm']) {
+        if (l[k] == null && prev?.[k] != null) l[k] = prev[k];
+      }
       if (prev?.receivedAt) {
         l.received = prev.received;
         l.damaged = prev.damaged;
@@ -290,8 +318,8 @@ export async function updateShipment(id, by, body = {}) {
     return next;
   }
   await q(
-    `UPDATE inbound_shipments SET status=$2, origin=$3, reference=$4, carrier=$5, tracking=$6, eta=$7, notes=$8, timeline=$9, updated_at=$10, payment_status=$11, paid_amount=$12, invoice_total=$13 WHERE id=$1`,
-    [id, next.status, next.origin, next.reference, next.carrier, next.tracking, next.eta, next.notes, JSON.stringify(next.timeline), now, next.paymentStatus || 'unpaid', next.paidAmount ?? null, next.invoiceTotal ?? null]
+    `UPDATE inbound_shipments SET status=$2, origin=$3, reference=$4, carrier=$5, tracking=$6, eta=$7, notes=$8, timeline=$9, updated_at=$10, payment_status=$11, paid_amount=$12, invoice_total=$13, incoterm=$14, payment_terms=$15 WHERE id=$1`,
+    [id, next.status, next.origin, next.reference, next.carrier, next.tracking, next.eta, next.notes, JSON.stringify(next.timeline), now, next.paymentStatus || 'unpaid', next.paidAmount ?? null, next.invoiceTotal ?? null, next.incoterm ?? null, next.paymentTerms ?? null]
   );
   if (body.lines !== undefined) {
     await q('DELETE FROM inbound_lines WHERE shipment_id = $1', [id]);
