@@ -1,12 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
+import { HistoryImport } from './HistoryImport.jsx';
 
 // Documents inbox: every supplier / freight / customs document the app has taken in, what was
 // read from it, and the shipment it belongs to. A document whose reference numbers point at one
 // shipment files itself; one that points at none, or at several, waits here for a person.
 const money = (n, currency) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'EUR' }).format(Number(n) || 0);
-const TYPE = { order: 'Order', invoice: 'Supplier invoice', packing_list: 'Packing list', bill_of_lading: 'Bill of lading', 7501: 'Customs entry', arrival_notice: 'Arrival notice', freight_invoice: 'Freight invoice', unknown: 'Document' };
+const TYPE = {
+  order: 'Order', invoice: 'Supplier invoice', commercial_invoice: 'Supplier invoice', packing_list: 'Packing list', bill_of_lading: 'Bill of lading',
+  7501: 'Customs entry', arrival_notice: 'Arrival notice', freight_invoice: 'Freight invoice', broker_invoice: 'Broker invoice', freight_quote: 'Freight quote',
+  isf: 'ISF filing', delivery_order: 'Delivery order', duty_bill: 'Duty bill', proof_of_delivery: 'Proof of delivery', other: 'Document', unknown: 'Document',
+};
+const fmtDay = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 const shipName = (s) => s.reference || s.origin || 'Shipment';
 
 // One line of what was read, so staff can see the document was understood before trusting it.
@@ -14,8 +20,17 @@ function readSummary(d) {
   const x = d.extracted;
   if (!x || !x.lines) return null;
   const bits = [];
+  if (x.readBy === 'ai') {
+    if (x.counterparty) bits.push(x.counterparty);
+    if (x.lines.length) bits.push(`${x.lines.length} lines`);
+    if (x.total != null && x.invoiceTotal == null) bits.push(money(x.total, x.currency || 'USD'));
+    if (x.eta) bits.push(`arrival ${fmtDay(x.eta)}`);
+    if (x.carrier) bits.push(x.carrier);
+    if (x.container) bits.push(`container ${x.container}`);
+    if (x.totals?.pallets) bits.push(`${x.totals.pallets} pallets`);
+  }
   if (x.totals?.units) bits.push(`${x.lines.length} lines · ${x.totals.units} units`);
-  if (x.invoiceTotal != null) bits.push(money(x.invoiceTotal, x.lines.find((l) => l.currency)?.currency));
+  if (x.invoiceTotal != null) bits.push(money(x.invoiceTotal, x.lines.find((l) => l.currency)?.currency || x.currency));
   if (x.totals?.cbm) bits.push(`${x.totals.cbm} m³`);
   if (x.totals?.cartons) bits.push(`${x.totals.cartons} cartons`);
   if (x.totals?.grossKg) bits.push(`${x.totals.grossKg} kg gross`);
@@ -31,6 +46,8 @@ export function DocumentsInbox({ ships, onChanged }) {
   const [busy, setBusy] = useState('');
   const [pick, setPick] = useState({}); // doc id -> chosen shipment id
   const fileRef = useRef(null);
+  const [find, setFind] = useState('');
+  const [allFiled, setAllFiled] = useState(false);
   const [applying, setApplying] = useState(null); // { id, preview }
   const openApply = async (d) => {
     setErr('');
@@ -87,6 +104,8 @@ export function DocumentsInbox({ ships, onChanged }) {
   const waiting = (docs || []).filter((d) => d.status === 'needs_review' || d.status === 'unmatched');
   const filed = (docs || []).filter((d) => d.status === 'matched');
   const open = (ships || []).filter((s) => s.status !== 'cancelled');
+  const needle = find.trim().toLowerCase();
+  const hit = (d) => !needle || `${d.filename} ${d.refs.map((r) => r.value).join(' ')} ${d.extracted?.counterparty || ''} ${d.shipment?.reference || ''}`.toLowerCase().includes(needle);
 
   const row = (d) => {
     const x = d.extracted;
@@ -98,6 +117,8 @@ export function DocumentsInbox({ ships, onChanged }) {
             {d.driveUrl ? <a className="link" href={d.driveUrl} target="_blank" rel="noreferrer">{d.filename}</a> : d.filename}
             <span className="badge card">{TYPE[d.docType] || d.docType}</span>
             {d.source !== 'upload' && <span className="muted small"> · via {d.source}</span>}
+            {d.docDate && <span className="muted small"> · {fmtDay(d.docDate)}</span>}
+            {x?.readBy === 'ai' && <span className="muted small"> · read by AI, check before using</span>}
           </div>
           <div className="doc-refs">
             {d.refs.length === 0 && <span className="muted small">No reference number found on this document</span>}
@@ -107,7 +128,13 @@ export function DocumentsInbox({ ships, onChanged }) {
               </span>
             ))}
           </div>
+          {x?.readBy === 'ai' && x.summary && <div className="small">{x.summary}</div>}
           {readSummary(d) && <div className="small">{readSummary(d)}</div>}
+          {x?.charges?.length > 0 && (
+            <div className="muted small">{x.charges.map((c) => `${c.label} ${money(c.amount, c.currency || x.currency || 'USD')}`).join(' · ')}</div>
+          )}
+          {x?.unsure?.length > 0 && <div className="err-inline small">Not sure about: {x.unsure.join('; ')}</div>}
+          {x?.notRead && <div className="muted small">Not read automatically: {x.notRead}</div>}
           {x?.checks?.totalMatches === false && (
             <div className="err-inline small">The lines add up to {money(x.checks.linesTotal)} but the document states {money(x.invoiceTotal)}. Check it before using these figures.</div>
           )}
@@ -119,7 +146,7 @@ export function DocumentsInbox({ ships, onChanged }) {
         {d.status === 'matched' ? (
           <div className="doc-side">
             <span className="badge ready">Filed</span>
-            <span className="small">{d.shipment ? shipName(d.shipment) : ''}</span>
+            <span className="small">{d.shipment ? shipName(d.shipment) : ''}{d.shipment?.historical ? ' · past' : ''}</span>
             {d.applied ? (
               <span className="muted small">{d.applied.summary?.created ? 'Shipment created from it' : 'Applied to the shipment'}</span>
             ) : (
@@ -144,15 +171,25 @@ export function DocumentsInbox({ ships, onChanged }) {
                   ))}
                 </optgroup>
               )}
-              <optgroup label="All shipments">
-                {open.filter((s) => !d.candidates?.some((c) => c.id === s.id)).map((s) => (
+              <optgroup label="Current shipments">
+                {open.filter((s) => !s.historical && !d.candidates?.some((c) => c.id === s.id)).map((s) => (
                   <option key={s.id} value={s.id}>{shipName(s)}</option>
                 ))}
               </optgroup>
+              {open.some((s) => s.historical) && (
+                <optgroup label="Past shipments">
+                  {open.filter((s) => s.historical && !d.candidates?.some((c) => c.id === s.id)).map((s) => (
+                    <option key={s.id} value={s.id}>{shipName(s)}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
             <div className="doc-btns">
               <button className="primary small" disabled={!chosen} onClick={() => act(() => api.intakeAssign(d.id, { shipmentId: chosen }))}>File on it</button>
-              <button className="secondary small-btn" onClick={() => act(() => api.intakeAssign(d.id, { create: true }))}>New shipment</button>
+              <button className="secondary small-btn" title="Goods still on their way: counts as incoming stock" onClick={() => act(() => api.intakeAssign(d.id, { create: true }))}>New shipment</button>
+              {d.historical && (
+                <button className="secondary small-btn" title="Goods already arrived: a record only, no stock change" onClick={() => act(() => api.intakeAssign(d.id, { create: true, historical: true }))}>New past shipment</button>
+              )}
               <button className="link" onClick={() => act(() => api.intakeIgnore(d.id))}>Not a shipment document</button>
             </div>
           </div>
@@ -171,12 +208,15 @@ export function DocumentsInbox({ ships, onChanged }) {
         <button className="secondary small-btn" disabled={!!busy} onClick={() => fileRef.current?.click()}>{busy || '+ Add documents'}</button>
       </div>
       {err && <div className="err-inline small">{err}</div>}
+      <HistoryImport onChanged={() => { load(); onChanged?.(); }} />
+      {(docs || []).length > 12 && <input className="docs-find" placeholder="Find a document by name, number or company" value={find} onChange={(e) => setFind(e.target.value)} />}
 
       {waiting.length > 0 && <div className="lane-head">Needs a decision · {waiting.length}</div>}
-      {waiting.map(row)}
+      {waiting.filter(hit).map(row)}
       <div className="lane-head">Filed · {filed.length}</div>
       {filed.length === 0 && <div className="muted small">Nothing filed yet.</div>}
-      {filed.map(row)}
+      {filed.filter(hit).slice(0, allFiled || needle ? undefined : 25).map(row)}
+      {!allFiled && !needle && filed.length > 25 && <button className="link" onClick={() => setAllFiled(true)}>Show all {filed.length} filed documents</button>}
     </div>
   );
 }

@@ -32,6 +32,18 @@ services:
         sync: false
       - key: AGENT_API_TOKEN # WhatsApp agent bearer token — set SAME value in the gomehagent service
         sync: false
+      # Document intake from Google (read-only) + AI reading. ONE account: the Baci mailbox's own
+      # refresh token, never the whole multi-account list used by the email agent.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: GOOGLE_ACCOUNT_EMAIL # the app refuses to read if the token belongs to any other address
+        sync: false
+      - key: ANTHROPIC_API_KEY # reads forwarder / customs / freight documents
+        sync: false
       - key: REQUIRED_DOCS
         value: commercial_invoice,packing_list,bill_of_lading,7501
       - key: JWT_SECRET

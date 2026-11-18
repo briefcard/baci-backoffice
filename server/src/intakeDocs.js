@@ -18,7 +18,7 @@
 // person to review. Postgres-backed with the in-memory fallback used elsewhere.
 import crypto from 'node:crypto';
 import { pool, q } from './db.js';
-import { parseIntakeFile } from './intake.js';
+import { readDocument } from './reader.js';
 import { createShipment, getShipment, listShipments, updateShipment } from './inbound.js';
 import { createDocument, normalizeDocType } from './documents.js';
 
@@ -143,6 +143,8 @@ const docRow = (r) => ({
   refs: r.refs || [], extracted: r.extracted || null, driveUrl: r.drive_url, sender: r.sender, subject: r.subject,
   receivedAt: iso(r.received_at), createdBy: r.created_by, createdAt: iso(r.created_at), reviewedBy: r.reviewed_by, reviewedAt: iso(r.reviewed_at),
   applied: r.applied || null,
+  sourceId: r.source_id || null, historical: r.historical === true,
+  docDate: r.doc_date instanceof Date ? r.doc_date.toISOString().slice(0, 10) : r.doc_date || null,
 });
 
 async function saveDoc(d, isNew) {
@@ -152,9 +154,9 @@ async function saveDoc(d, isNew) {
   }
   if (isNew) {
     await q(
-      `INSERT INTO intake_documents (id, hash, filename, source, doc_type, status, shipment_id, refs, extracted, drive_url, sender, subject, received_at, created_by, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-      [d.id, d.hash, d.filename, d.source, d.docType, d.status, d.shipmentId, JSON.stringify(d.refs), JSON.stringify(d.extracted), d.driveUrl, d.sender, d.subject, d.receivedAt, d.createdBy, d.createdAt]
+      `INSERT INTO intake_documents (id, hash, filename, source, doc_type, status, shipment_id, refs, extracted, drive_url, sender, subject, received_at, created_by, created_at, source_id, historical, doc_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      [d.id, d.hash, d.filename, d.source, d.docType, d.status, d.shipmentId, JSON.stringify(d.refs), JSON.stringify(d.extracted), d.driveUrl, d.sender, d.subject, d.receivedAt, d.createdBy, d.createdAt, d.sourceId || null, d.historical === true, d.docDate || null]
     );
   } else {
     await q('UPDATE intake_documents SET status=$2, shipment_id=$3, refs=$4, doc_type=$5, reviewed_by=$6, reviewed_at=$7, drive_url=$8, applied=$9 WHERE id=$1', [
@@ -177,12 +179,15 @@ async function findByHash(hash) {
 }
 
 // Newest first, each with the shipments its references point at (for the review picker).
-export async function listIntake({ limit = 200 } = {}) {
+const HIDDEN = ['skipped', 'duplicate'];
+export async function listIntake({ limit = 600 } = {}) {
   let docs;
-  if (!pool) docs = [...mem.docs.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, limit);
-  else docs = (await q('SELECT * FROM intake_documents ORDER BY created_at DESC LIMIT $1', [limit])).rows.map(docRow);
+  // 'skipped' (not import paperwork) and 'duplicate' rows exist only so the history import
+  // does not fetch the same file twice; they are not shown.
+  if (!pool) docs = [...mem.docs.values()].filter((d) => !HIDDEN.includes(d.status)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, limit);
+  else docs = (await q("SELECT * FROM intake_documents WHERE status NOT IN ('skipped','duplicate') ORDER BY created_at DESC LIMIT $1", [limit])).rows.map(docRow);
   const ships = new Map((await listShipments()).map((s) => [s.id, s]));
-  const brief = (s) => s && { id: s.id, reference: s.reference, origin: s.origin, status: s.status, eta: s.eta };
+  const brief = (s) => s && { id: s.id, reference: s.reference, origin: s.origin, status: s.status, eta: s.eta, historical: s.historical === true };
   const out = [];
   for (const d of docs) {
     const candidates = d.status === 'needs_review' || d.status === 'unmatched' ? (await matchRefs(d.refs)).slice(0, 6).map((c) => ({ ...brief(c.shipment), matchedOn: c.matchedOn })) : [];
@@ -201,18 +206,58 @@ async function attach(doc, shipmentId, by) {
   }
 }
 
-// Take in one document. Give EITHER the file (`buffer`: a Baci order / invoice / packing list is
-// read here) OR what a reader already extracted (`refs`, `docType`, `extracted`), for document
-// types this app does not parse itself. The same file twice returns the first record.
-export async function ingestDocument({ filename, buffer, hash, refs, docType, extracted, source, driveUrl, sender, subject, receivedAt }, by) {
+// Take in one document. Give EITHER the file (`buffer`: read here, by the app's own parser for
+// a Baci order / invoice / packing list and by Claude for anything else) OR what a reader
+// already extracted (`refs`, `docType`, `extracted`). The same file twice returns the first
+// record.
+//
+// History import options (`opts`):
+//   historical  the document is from the past: it may be filed on, or create, a past shipment
+//   sourceId    where it was fetched from, so the import never fetches it twice
+//   hold        store it unfiled; fileHistorical() files the whole batch in a sensible order
+//   read        a reading already made by readDocument(), to avoid reading twice
+//   status      'skipped' | 'duplicate': a marker row only (see listIntake)
+export async function ingestDocument({ filename, buffer, hash, refs, docType, extracted, source, driveUrl, sender, subject, receivedAt }, by, opts = {}) {
   const h = hash || (buffer ? crypto.createHash('sha256').update(buffer).digest('hex') : null);
-  const dupe = await findByHash(h);
-  if (dupe) return { document: dupe, duplicate: true };
-
-  let parsed = null;
-  if (buffer && /\.(pdf|xlsx|xls)$/i.test(filename || '')) {
-    parsed = await parseIntakeFile(filename, buffer).catch(() => null);
+  // Two copies of one file arriving at the same moment (the email and the Drive copy) must not
+  // both be taken in as new: the second waits for the first.
+  while (h && inFlight.has(h)) await inFlight.get(h);
+  let release;
+  if (h) inFlight.set(h, new Promise((r) => (release = r)));
+  try {
+    return await ingestOne({ filename, buffer, h, refs, docType, extracted, source, driveUrl, sender, subject, receivedAt }, by, opts);
+  } finally {
+    if (h) {
+      inFlight.delete(h);
+      release();
+    }
   }
+}
+const inFlight = new Map();
+
+async function ingestOne({ filename, buffer, h, refs, docType, extracted, source, driveUrl, sender, subject, receivedAt }, by, opts) {
+  const dupe = await findByHash(h);
+  if (dupe && !opts.sourceId) return { document: dupe, duplicate: true };
+  // A second copy can still add something: the Drive folder it sits in names its shipment, and
+  // a Drive link is a better place to open it from than none.
+  if (dupe && (refs?.length || (driveUrl && !dupe.driveUrl))) {
+    for (const r of refs || []) {
+      const key = refKey(r?.value);
+      if (!key || dupe.refs.some((x) => refKey(x.value) === key)) continue;
+      dupe.refs.push({ kind: kindOf(r.kind), value: String(r.value).trim().slice(0, 120) });
+      if (dupe.shipmentId) await addRef(dupe.shipmentId, { ...r, docId: dupe.id }, by);
+    }
+    if (driveUrl && !dupe.driveUrl) dupe.driveUrl = str(driveUrl, 1000);
+    await saveDoc(dupe, false);
+  }
+
+  let read = typeof opts.read === 'function' ? (dupe ? null : await opts.read()) : opts.read || null;
+  if (read?.how === 'skipped' && opts.historical && !opts.status) opts = { ...opts, status: 'skipped' };
+  if (read?.defer) return { deferred: true };
+  if (!dupe && !read && !opts.status && buffer) {
+    read = await readDocument(filename, buffer, { sender, subject }).catch((err) => ({ how: 'skipped', reason: String(err?.message || err) }));
+  }
+  const parsed = read?.extracted || read?.parsed || null;
   const allRefs = [];
   const push = (r) => {
     const key = refKey(r?.value);
@@ -221,8 +266,11 @@ export async function ingestDocument({ filename, buffer, hash, refs, docType, ex
   for (const r of parsed?.refs || []) push(r);
   for (const r of refs || []) push(typeof r === 'string' ? { kind: 'other', value: r } : r);
 
-  const candidates = await matchRefs(allRefs);
-  const verdict = decide(candidates);
+  // Claude judged it not to be import paperwork: keep the record, out of the way.
+  const irrelevant = parsed?.readBy === 'ai' && parsed.relevant === false;
+  const marker = dupe ? 'duplicate' : opts.status || (irrelevant ? (opts.historical ? 'skipped' : 'ignored') : null);
+  const candidates = marker || opts.hold ? [] : await matchRefs(allRefs);
+  const verdict = marker ? { status: marker, shipmentId: null } : opts.hold ? { status: 'unmatched', shipmentId: null } : decide(candidates);
   const doc = {
     id: crypto.randomUUID(),
     hash: h,
@@ -231,8 +279,8 @@ export async function ingestDocument({ filename, buffer, hash, refs, docType, ex
     docType: (parsed?.docType && parsed.docType !== 'unknown' ? parsed.docType : normalizeDocType(docType)) || 'unknown',
     status: verdict.status,
     shipmentId: verdict.shipmentId,
-    refs: allRefs,
-    extracted: parsed || extracted || null,
+    refs: marker ? [] : allRefs,
+    extracted: dupe ? { duplicateOf: dupe.id } : parsed || extracted || (read?.reason ? { notRead: read.reason } : null),
     driveUrl: str(driveUrl, 1000),
     sender: str(sender),
     subject: str(subject, 500),
@@ -242,33 +290,118 @@ export async function ingestDocument({ filename, buffer, hash, refs, docType, ex
     reviewedBy: null,
     reviewedAt: null,
     applied: null,
+    sourceId: str(opts.sourceId, 400),
+    historical: opts.historical === true,
+    docDate: parsed?.docDate || extracted?.docDate || null,
   };
   await saveDoc(doc, true);
   if (doc.shipmentId) await attach(doc, doc.shipmentId, by);
-  return { document: doc, duplicate: false, candidates };
+  return { document: doc, duplicate: !!dupe, candidates, usage: read?.usage || null, how: read?.how || null };
+}
+
+// Which of these source ids have already been taken in?
+export async function knownSourceIds(ids) {
+  if (!ids.length) return new Set();
+  if (!pool) return new Set([...mem.docs.values()].map((d) => d.sourceId).filter((x) => ids.includes(x)));
+  const { rows } = await q('SELECT source_id FROM intake_documents WHERE source_id = ANY($1::text[])', [ids]);
+  return new Set(rows.map((r) => r.source_id));
+}
+
+// What a document says a NEW shipment should hold.
+function shipmentFromDoc(doc) {
+  const x = doc.extracted || {};
+  return {
+    reference: x.reference || doc.refs[0]?.value || doc.filename,
+    origin: x.origin || null,
+    invoiceTotal: doc.docType === 'packing_list' ? null : x.invoiceTotal ?? null,
+    incoterm: x.incoterm || null,
+    paymentTerms: x.paymentTerms || null,
+    eta: x.eta || null,
+    carrier: x.carrier || null,
+    tracking: x.tracking || x.container || null,
+    lines: (x.lines || []).map((l) => ({
+      sku: l.sku, title: l.title, expected: l.expected, variantId: l.variantId,
+      unitCost: l.unitPrice, currency: l.currency, madeIn: l.madeIn, hsCode: l.hsCode,
+      cartons: l.cartons, netKg: l.netKg, grossKg: l.grossKg, cbm: l.cbm,
+    })),
+    notes: `Created from ${doc.filename}`,
+  };
+}
+
+// ---- filing a history import ----
+//
+// Held documents are filed in the order the paperwork was issued (orders, then invoices and
+// packing lists, then freight and customs papers), so each later document finds the shipment
+// its earlier ones created. A document that matches a shipment joins it. A supplier document
+// that matches nothing and is dated before `pastBefore` becomes a PAST shipment; a newer one
+// is left in the inbox, because it may be a shipment still on its way and only a person can
+// say. Figures are applied automatically to past shipments only: they hold no stock and no
+// promises, so nothing can be disturbed.
+const FILE_ORDER = ['order', 'invoice', 'commercial_invoice', 'packing_list'];
+const CREATES = new Set(FILE_ORDER);
+
+export async function fileHistorical({ pastBefore }, by, onProgress = () => {}) {
+  const pending = async () => {
+    const all = !pool
+      ? [...mem.docs.values()]
+      : (await q("SELECT * FROM intake_documents WHERE historical = true AND status IN ('unmatched','needs_review')")).rows.map(docRow);
+    const rank = (d) => (FILE_ORDER.indexOf(d.docType) + 1 || FILE_ORDER.length + 1);
+    return all
+      .filter((d) => d.historical && ['unmatched', 'needs_review'].includes(d.status))
+      .sort((a, b) => rank(a) - rank(b) || String(a.docDate || a.receivedAt || '').localeCompare(String(b.docDate || b.receivedAt || '')));
+  };
+  const out = { filed: 0, created: 0, applied: 0, left: 0 };
+  // Two passes: a freight invoice can only find its shipment after the bill of lading that
+  // carries the same container number has been filed.
+  for (let pass = 0; pass < 2; pass++) {
+    const docs = await pending();
+    let moved = 0;
+    for (const doc of docs) {
+      const verdict = decide(await matchRefs(doc.refs));
+      let target = verdict.shipmentId ? await getShipment(verdict.shipmentId) : null;
+      let created = false;
+      const date = doc.docDate || (doc.receivedAt ? String(doc.receivedAt).slice(0, 10) : null);
+      if (!target && verdict.status === 'unmatched' && pass === 0 && CREATES.has(doc.docType) && doc.refs.length && date && date < pastBefore) {
+        target = await createShipment(by, { ...shipmentFromDoc(doc), historical: true });
+        created = true;
+        out.created++;
+      }
+      if (!target) {
+        if (verdict.status !== doc.status) {
+          doc.status = verdict.status;
+          await saveDoc(doc, false);
+        }
+        continue;
+      }
+      Object.assign(doc, { status: 'matched', shipmentId: target.id });
+      if (created) doc.applied = { at: new Date().toISOString(), by, summary: { created: true } };
+      await saveDoc(doc, false);
+      await attach(doc, target.id, by);
+      out.filed++;
+      moved++;
+      if (target.historical && !created) {
+        const res = await applyDocument(doc.id, { addMissing: true }, by).catch(() => null);
+        if (res && (res.summary.lineUpdates || res.summary.added || res.summary.header.length)) out.applied++;
+      }
+      onProgress(out);
+    }
+    if (!moved) break;
+  }
+  out.left = (await pending()).length;
+  return out;
 }
 
 // A person settles an unclear document: onto an existing shipment, or a new one made from it.
-export async function assignDocument(id, { shipmentId, create }, by) {
+export async function assignDocument(id, { shipmentId, create, historical }, by) {
   const doc = await getIntakeDoc(id);
   if (!doc) return null;
   let target = shipmentId ? await getShipment(shipmentId) : null;
   if (!target && create) {
-    const x = doc.extracted || {};
     target = await createShipment(by, {
-      reference: x.reference || doc.refs[0]?.value || doc.filename,
-      origin: x.origin || null,
+      ...shipmentFromDoc(doc),
       // Same convention as the import button: a packing list means the goods have shipped.
       status: doc.docType === 'packing_list' ? 'in_transit' : 'ordered',
-      invoiceTotal: doc.docType === 'packing_list' ? null : x.invoiceTotal ?? null,
-      incoterm: x.incoterm || null,
-      paymentTerms: x.paymentTerms || null,
-      lines: (x.lines || []).map((l) => ({
-        sku: l.sku, title: l.title, expected: l.expected, variantId: l.variantId,
-        unitCost: l.unitPrice, currency: l.currency, madeIn: l.madeIn, hsCode: l.hsCode,
-        cartons: l.cartons, netKg: l.netKg, grossKg: l.grossKg, cbm: l.cbm,
-      })),
-      notes: `Created from ${doc.filename}`,
+      historical: historical === true,
     });
     doc.applied = { at: new Date().toISOString(), by, summary: { created: true } };
   }

@@ -146,7 +146,9 @@ export async function createShipment(by, body = {}) {
   const lines = await resolveLines(sanitizeLines(body.lines));
   const ship = {
     id: crypto.randomUUID(),
-    status: SHIPMENT_STATUSES.includes(body.status) ? body.status : 'ordered',
+    // A past shipment is always 'received': it is a record, not stock on its way.
+    status: body.historical === true ? 'received' : SHIPMENT_STATUSES.includes(body.status) ? body.status : 'ordered',
+    historical: body.historical === true,
     origin: s(body.origin),
     reference: s(body.reference),
     carrier: s(body.carrier, 100),
@@ -158,7 +160,7 @@ export async function createShipment(by, body = {}) {
     invoiceTotal: body.invoiceTotal != null && body.invoiceTotal !== '' ? Number(body.invoiceTotal) : null,
     incoterm: s(body.incoterm, 40),
     paymentTerms: s(body.paymentTerms, 120),
-    timeline: [{ at: now, status: body.status || 'ordered', note: 'Created', by }],
+    timeline: [{ at: now, status: body.historical === true ? 'received' : body.status || 'ordered', note: body.historical === true ? 'Imported as a past shipment' : 'Created', by }],
     createdBy: by,
     createdAt: now,
     updatedAt: now,
@@ -169,9 +171,9 @@ export async function createShipment(by, body = {}) {
     return ship;
   }
   await q(
-    `INSERT INTO inbound_shipments (id, status, origin, reference, carrier, tracking, eta, notes, timeline, created_by, created_at, updated_at, payment_status, paid_amount, invoice_total, incoterm, payment_terms)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16)`,
-    [ship.id, ship.status, ship.origin, ship.reference, ship.carrier, ship.tracking, ship.eta, ship.notes, JSON.stringify(ship.timeline), by, now, ship.paymentStatus, ship.paidAmount, ship.invoiceTotal, ship.incoterm, ship.paymentTerms]
+    `INSERT INTO inbound_shipments (id, status, origin, reference, carrier, tracking, eta, notes, timeline, created_by, created_at, updated_at, payment_status, paid_amount, invoice_total, incoterm, payment_terms, historical)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16,$17)`,
+    [ship.id, ship.status, ship.origin, ship.reference, ship.carrier, ship.tracking, ship.eta, ship.notes, JSON.stringify(ship.timeline), by, now, ship.paymentStatus, ship.paidAmount, ship.invoiceTotal, ship.incoterm, ship.paymentTerms, ship.historical]
   );
   for (const l of lines) await insertLine(ship.id, l);
   return ship;
@@ -191,6 +193,7 @@ function rowToShipment(r, lines) {
   return {
     id: r.id,
     status: r.status,
+    historical: r.historical === true,
     origin: r.origin,
     reference: r.reference,
     carrier: r.carrier,
@@ -235,7 +238,7 @@ export async function listShipments() {
   if (!pool) {
     return [...memShipments.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }
-  const { rows } = await q('SELECT * FROM inbound_shipments ORDER BY created_at DESC LIMIT 300');
+  const { rows } = await q('SELECT * FROM inbound_shipments ORDER BY created_at DESC LIMIT 2000');
   const { rows: lineRows } = await q(
     'SELECT * FROM inbound_lines WHERE shipment_id = ANY($1::text[])',
     [rows.map((r) => r.id)]
@@ -279,11 +282,19 @@ export async function updateShipment(id, by, body = {}) {
     next.paidAmount = body.paidAmount === '' || body.paidAmount == null ? null : Number(body.paidAmount);
   if (body.invoiceTotal !== undefined)
     next.invoiceTotal = body.invoiceTotal === '' || body.invoiceTotal == null ? null : Number(body.invoiceTotal);
+  // A past shipment keeps its status. Making it live is a deliberate, separate step:
+  // { historical: false, status: 'ordered' | 'in_transit' | 'arrived' }.
+  if (ship.historical && body.historical === false) {
+    if (!['ordered', 'in_transit', 'arrived'].includes(body.status)) throw new Error('Choose where the shipment is now: ordered, in transit or arrived');
+    next.historical = false;
+  } else if (ship.historical && body.status && !['received', 'cancelled'].includes(body.status)) {
+    throw new Error('This is a past shipment. Make it live first if the goods have not arrived yet.');
+  }
   if (body.status && SHIPMENT_STATUSES.includes(body.status) && body.status !== ship.status) {
     next.status = body.status;
     next.timeline = [
       ...(next.timeline || ship.timeline),
-      { at: now, status: body.status, note: s(body.statusNote, 500) || null, by },
+      { at: now, status: body.status, note: s(body.statusNote, 500) || (ship.historical && !next.historical ? 'Made live: the goods have not arrived yet' : null), by },
     ];
   } else if (body.statusNote) {
     next.timeline = [
@@ -318,8 +329,8 @@ export async function updateShipment(id, by, body = {}) {
     return next;
   }
   await q(
-    `UPDATE inbound_shipments SET status=$2, origin=$3, reference=$4, carrier=$5, tracking=$6, eta=$7, notes=$8, timeline=$9, updated_at=$10, payment_status=$11, paid_amount=$12, invoice_total=$13, incoterm=$14, payment_terms=$15 WHERE id=$1`,
-    [id, next.status, next.origin, next.reference, next.carrier, next.tracking, next.eta, next.notes, JSON.stringify(next.timeline), now, next.paymentStatus || 'unpaid', next.paidAmount ?? null, next.invoiceTotal ?? null, next.incoterm ?? null, next.paymentTerms ?? null]
+    `UPDATE inbound_shipments SET status=$2, origin=$3, reference=$4, carrier=$5, tracking=$6, eta=$7, notes=$8, timeline=$9, updated_at=$10, payment_status=$11, paid_amount=$12, invoice_total=$13, incoterm=$14, payment_terms=$15, historical=$16 WHERE id=$1`,
+    [id, next.status, next.origin, next.reference, next.carrier, next.tracking, next.eta, next.notes, JSON.stringify(next.timeline), now, next.paymentStatus || 'unpaid', next.paidAmount ?? null, next.invoiceTotal ?? null, next.incoterm ?? null, next.paymentTerms ?? null, next.historical === true]
   );
   if (body.lines !== undefined) {
     await q('DELETE FROM inbound_lines WHERE shipment_id = $1', [id]);
@@ -409,6 +420,7 @@ async function pushLineToShopify(line) {
 export async function receiveShipment(id, by, body = {}) {
   const ship = await getShipment(id);
   if (!ship) return null;
+  if (ship.historical) throw new Error('This is a past shipment: its goods are already in stock, so receiving it would count them twice.');
   const now = new Date().toISOString();
   const updates = new Map((body.lines || []).map((l) => [l.id, l]));
   if (!ship.lines.some((l) => updates.has(l.id))) throw new Error('No lines to receive');
@@ -462,7 +474,7 @@ export async function receiveShipment(id, by, body = {}) {
 export async function resyncShipment(id, by) {
   const ship = await getShipment(id);
   if (!ship) return null;
-  const pending = ship.lines.filter((l) => l.receivedAt && !l.shopifySynced);
+  const pending = ship.historical ? [] : ship.lines.filter((l) => l.receivedAt && !l.shopifySynced);
   if (!pending.length) return { shipment: ship, synced: 0, failed: 0 };
   await resolveLines(pending.filter((l) => !l.variantId));
   let synced = 0;

@@ -46,6 +46,7 @@ import {
   DOC_STATUSES,
 } from './documents.js';
 import multipart from '@fastify/multipart';
+import { connections, lastRun, startImport, stopImport, recoverRuns } from './history.js';
 import { parseIntakeFile } from './intake.js';
 import { addClient, clientCount, broadcast } from './stream.js';
 import { verifyShopifyHmac, handleInventoryLevelUpdate } from './webhooks.js';
@@ -217,7 +218,12 @@ app.post('/api/inbound', { preHandler: requireInboundAccess }, async (req, reply
 
 app.post('/api/inbound/:id', { preHandler: requireInboundAccess }, async (req, reply) => {
   const before = await getShipment(req.params.id);
-  const ship = await updateShipment(req.params.id, req.rep.email, req.body || {});
+  let ship;
+  try {
+    ship = await updateShipment(req.params.id, req.rep.email, req.body || {});
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
   if (!ship) return reply.code(404).send({ error: 'not found' });
   await refreshRollup();
   await noteEtaChange(before, ship); // orders holding units on it learn the new arrival date
@@ -351,6 +357,19 @@ app.post('/api/intake/:id/ignore', { preHandler: requireInboundAccess }, async (
   if (!doc) return reply.code(404).send({ error: 'not found' });
   return { ok: true, document: doc };
 });
+
+// History import: this year's supplier and freight paperwork from Drive and the Baci mailbox.
+// GET = what is connected + the current or last run. POST = start ({ since, gmail, drive,
+// pastBefore, maxAi, countOnly }). It only ever creates PAST shipments (no stock, no incoming).
+app.get('/api/intake/history', { preHandler: requireInboundAccess }, async () => ({ connections: await connections(), run: await lastRun() }));
+app.post('/api/intake/history', { preHandler: requireInboundAccess }, async (req, reply) => {
+  try {
+    return { ok: true, run: await startImport(req.body || {}, req.rep.email) };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+app.post('/api/intake/history/stop', { preHandler: requireInboundAccess }, async () => ({ ok: true, run: stopImport() }));
 
 // A shipment's reference numbers: add one by hand, or remove a wrong one.
 app.post('/api/inbound/:id/refs', { preHandler: requireInboundAccess }, async (req, reply) => {
@@ -930,6 +949,7 @@ async function start() {
       .catch((err) => app.log.error({ err }, 'migration failed'));
   }
 
+  await recoverRuns();
   // Prime the inbound-shipments overlay so the sales floor sees incoming/ETA from day one.
   await refreshRollup().catch((err) => app.log.warn({ err }, 'inbound rollup failed'));
 

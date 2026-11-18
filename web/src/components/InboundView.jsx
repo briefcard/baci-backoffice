@@ -35,7 +35,7 @@ const daysLate = (eta) => {
 
 export function InboundView({ snapshot }) {
   const [ships, setShips] = useState(null);
-  const [mode, setMode] = useState('board'); // board | items | docs
+  const [mode, setMode] = useState('board'); // board | items | docs | past
   const [editing, setEditing] = useState(null); // shipment object | 'new' | {prefill}
   const [receiving, setReceiving] = useState(null); // shipment object
   const [quickAdd, setQuickAdd] = useState(null); // item row from ItemsView
@@ -149,10 +149,17 @@ export function InboundView({ snapshot }) {
         <button className={mode === 'docs' ? 'tab active' : 'tab'} onClick={() => setMode('docs')}>
           Documents
         </button>
+        {ships.some((x) => x.historical) && (
+          <button className={mode === 'past' ? 'tab active' : 'tab'} onClick={() => setMode('past')}>
+            Past shipments
+          </button>
+        )}
       </div>
 
       {mode === 'docs' ? (
         <DocumentsInbox ships={ships} onChanged={load} />
+      ) : mode === 'past' ? (
+        <PastShipments ships={ships.filter((x) => x.historical)} onOpen={setEditing} />
       ) : mode === 'items' ? (
         <ItemsView
           ships={ships}
@@ -165,7 +172,7 @@ export function InboundView({ snapshot }) {
         />
       ) : (
       <KanbanBoard
-        ships={ships}
+        ships={ships.filter((x) => !x.historical)}
         onMove={async (ship, status) => {
           const label = LANES.find(([k]) => k === status)?.[1] || status;
           if (!window.confirm(`Confirm: move ${ship.reference || ship.origin || 'shipment'} to "${label}"?`)) return;
@@ -181,7 +188,7 @@ export function InboundView({ snapshot }) {
       />
       )}
 
-      {ships.length === 0 && (
+      {ships.length === 0 && mode !== 'docs' && (
         <div className="center muted">No shipments yet — add the ones currently on the water/air.</div>
       )}
 
@@ -501,6 +508,47 @@ function PayBadge({ ship }) {
   return <span className={`badge ${m[0]}`}>{m[1]}</span>;
 }
 
+// Past shipments: goods that arrived before the app tracked them, rebuilt from their paperwork.
+// A record only: never stock, never incoming. Newest order first.
+function PastShipments({ ships, onOpen }) {
+  const [find, setFind] = useState('');
+  const needle = find.trim().toLowerCase();
+  const text = (s) => `${s.reference || ''} ${s.origin || ''} ${(s.refs || []).map((r) => r.value).join(' ')} ${s.lines.map((l) => l.sku).join(' ')}`.toLowerCase();
+  const rows = ships.filter((s) => !needle || text(s).includes(needle));
+  return (
+    <div className="past">
+      <div className="muted small">
+        Shipments rebuilt from past paperwork. They are a record only: they do not add stock, do not show as on the way and are not promised to client orders.
+      </div>
+      <input className="docs-find" placeholder="Find by order, invoice, container or item code" value={find} onChange={(e) => setFind(e.target.value)} />
+      {rows.map((s) => {
+        const units = s.lines.reduce((n, l) => n + (l.expected || 0), 0);
+        const cur = s.lines.find((l) => l.currency)?.currency || 'EUR';
+        return (
+          <div className="past-row" key={s.id} onClick={() => onOpen(s)}>
+            <div className="past-main">
+              <strong>{s.reference || s.origin || 'Shipment'}</strong>
+              <span className="muted small">
+                {s.origin ? `${s.origin} · ` : ''}
+                {s.lines.length} lines · {units} units
+                {s.invoiceTotal != null ? ` · ${new Intl.NumberFormat('en-US', { style: 'currency', currency: cur }).format(s.invoiceTotal)}` : ''}
+                {s.eta ? ` · arrived ${fmtDate(s.eta)}` : ''}
+              </span>
+              <span className="doc-refs">
+                {(s.refs || []).map((r) => (
+                  <span className="ord-src" key={r.id}>{r.label} {r.value}</span>
+                ))}
+              </span>
+            </div>
+            <span className="muted small">{s.docs ? `${s.docs.items?.filter((i) => i.docId).length ?? ''} documents` : ''}</span>
+          </div>
+        );
+      })}
+      {rows.length === 0 && <div className="center muted">Nothing matches.</div>}
+    </div>
+  );
+}
+
 // Kanban board: columns per status, cards draggable between them (desktop) with ◀ ▶ buttons as
 // the touch-friendly equivalent. Every move asks for confirmation — moving to "In transit" etc.
 // is a deliberate act that stamps the timeline. Receiving/Received are guarded: stock only moves
@@ -741,6 +789,7 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
     }
   };
 
+  const [liveAs, setLiveAs] = useState('in_transit');
   const unsyncedCount = lines.filter((l) => l.receivedAt && !l.shopifySynced).length;
   const resync = async () => {
     if (!shipment) return;
@@ -813,6 +862,39 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
           <button className="x" onClick={onClose}>✕</button>
         </div>
         <div className="cart-body">
+          {shipment?.historical && (
+            <div className="ord-confirm past-note">
+              <div className="small">
+                <strong>Past shipment.</strong> A record rebuilt from its paperwork. It does not add stock, does not show as on the way and is not promised to
+                client orders.
+              </div>
+              <div className="small muted">If these goods have not actually arrived yet, make it a current shipment:</div>
+              <div className="doc-btns past-live">
+                <select value={liveAs} onChange={(e) => setLiveAs(e.target.value)}>
+                  <option value="ordered">Ordered</option>
+                  <option value="in_transit">In transit</option>
+                  <option value="arrived">Arrived</option>
+                </select>
+                <button
+                  className="secondary small-btn"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (!window.confirm('Make this a current shipment? Its items will show as on the way and can be promised to client orders.')) return;
+                    setBusy(true);
+                    try {
+                      await api.inboundUpdate(shipment.id, { historical: false, status: liveAs });
+                      onSaved();
+                    } catch (e) {
+                      setErr(e?.message || 'Could not change it');
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Make current
+                </button>
+              </div>
+            </div>
+          )}
           <div className="cfields">
             <input placeholder="Origin (e.g. Baci Milano HQ — Italy)" value={origin} onChange={(e) => setOrigin(e.target.value)} />
             <input placeholder="Reference (PO / invoice / container #)" value={reference} onChange={(e) => setReference(e.target.value)} />
@@ -826,7 +908,7 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
             </label>
             <label className="inbound-field">
               <span>Status</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <select value={status} disabled={!!shipment?.historical} onChange={(e) => setStatus(e.target.value)}>
                 {LANES.map(([k, l]) => (
                   <option key={k} value={k}>{l}</option>
                 ))}

@@ -377,3 +377,30 @@ Phase 0 + first half of phase 1 of the procurement/tracking plan. Run `cd server
   unit_cost, currency, made_in, hs_code, cartons, net_kg, gross_kg, cbm; `inbound_shipments` gained
   incoterm, payment_terms; `intake_documents.applied`. Adding lines and changing quantities are
   opt-in. The route re-runs `reconcile` and `noteEtaChange`.
+
+- **History import + past shipments + AI reading (2026-11-18, branch, NOT merged):**
+  - `inbound_shipments.historical`: a PAST shipment is always `received`, is never in
+    `OPEN_STATUSES` (so never incoming, never reservable), `receiveShipment` / `resyncShipment`
+    refuse it, and a plain status change cannot reopen it. Only
+    `{ historical:false, status: ordered|in_transit|arrived }` ("Make current") makes it live.
+  - `google.js`: read-only Gmail + Drive with ONE refresh token (`GOOGLE_CLIENT_ID`,
+    `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, optional `GOOGLE_ACCOUNT_EMAIL` guard,
+    `GOOGLE_DRIVE_ROOT`). Drive walk skips `OLD VERSIONS`; `Order NNN-YYYY` / `Shipment NNN-YYYY`
+    folder names become a reference on every file inside.
+  - `reader.js`: `readDocument` = the app parser first (trusted only when it saw item lines or
+    the Baci letterhead, not on a filename alone), else Claude via `@anthropic-ai/sdk`
+    (`ANTHROPIC_API_KEY`, `INTAKE_MODEL` default `claude-opus-5-5`, structured output, server-side
+    refusal fallback). Uploads in the Documents inbox use it too. The history import adds a word
+    gate so catalogues and unrelated attachments are not sent to Claude.
+  - `history.js`: one run at a time (`import_runs`); `GET|POST /api/intake/history`,
+    `POST /api/intake/history/stop`. Every file is recorded by `source_id` and hash
+    (`skipped` / `duplicate` marker rows are hidden from the inbox) so a re-run fetches and reads
+    nothing twice and an interrupted run continues. `fileHistorical` files held documents in
+    paperwork order; supplier papers dated before `pastBefore` (default 60 days ago) create past
+    shipments, newer ones wait in the inbox; figures are auto-applied to PAST shipments only.
+  - UI: `HistoryImport.jsx` (Documents tab), "Past shipments" tab + "Make current" in the editor,
+    "New past shipment" on imported documents.
+  - Verified only against stand-ins for Google, Anthropic and Shopify (25 unit tests + an
+    end-to-end run). NOT verified against the real mailbox, Drive or the live Anthropic API.
+  - NOT built: reading image attachments (JPG/PNG scans), client-order backfill from Shopify,
+    landed-cost roll-up of the freight / duty charges now captured on each document.

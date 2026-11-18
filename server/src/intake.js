@@ -183,6 +183,12 @@ function parseXlsx(buf) {
   return { lines, meta: extractMeta(flat) };
 }
 
+// The words on a PDF's first pages, in reading-ish order. Empty for a scan.
+export async function pdfPlainText(buf, maxPages = 3) {
+  const pages = await pdfTextItems(buf);
+  return pages.slice(0, maxPages).map((items) => items.map((it) => it.str).join(' ')).join('\n');
+}
+
 // ---- PDF (pdf.js text items with coordinates) ----
 async function pdfTextItems(buf) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');

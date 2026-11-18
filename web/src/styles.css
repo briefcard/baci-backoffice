@@ -774,3 +774,25 @@ button.ord-attn-main { cursor: pointer; }
 .apply-opt { display: flex; gap: 8px; align-items: flex-start; }
 .apply-opt input { margin-top: 2px; flex: none; }
 .doc-side .small-btn { width: auto; flex: none; white-space: nowrap; }
+
+/* History import + past shipments */
+.hist-open { justify-self: start; }
+.hist { display: grid; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.hist-head { display: flex; justify-content: space-between; align-items: center; }
+.hist-conn { display: flex; gap: 8px; flex-wrap: wrap; }
+.hist-form { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
+.hist-form .doc-btns, .hist-form > .muted { grid-column: 1 / -1; justify-content: flex-start; }
+.hist-form .inbound-field { display: grid; gap: 4px; align-items: start; }
+.hist-form .inbound-field span { white-space: normal; width: auto; }
+.hist-check { display: flex; align-items: center; gap: 6px; }
+.hist-check input { width: auto; }
+.hist-run { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.hist-stop { margin-left: 10px; }
+.docs-find { width: 100%; }
+.past { display: grid; gap: 8px; }
+.past-row { display: flex; justify-content: space-between; gap: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; cursor: pointer; }
+.past-main { display: grid; gap: 4px; min-width: 0; }
+.past-note { margin-bottom: 10px; }
+.past-live { justify-content: flex-start; }
+.past-live select { width: auto; }
+@media (max-width: 620px) { .hist-form { grid-template-columns: 1fr; } }

@@ -161,6 +161,19 @@ export const cfg = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  // Read-only Google access for document intake (Gmail attachments + the Drive order folders).
+  // ONE account: the refresh token of the Baci mailbox only. With GOOGLE_ACCOUNT_EMAIL set the
+  // app refuses to read if the token turns out to belong to any other address.
+  google: {
+    clientId: (process.env.GOOGLE_CLIENT_ID || '').trim(),
+    clientSecret: (process.env.GOOGLE_CLIENT_SECRET || '').trim(),
+    refreshToken: (process.env.GOOGLE_REFRESH_TOKEN || '').trim(),
+    accountEmail: (process.env.GOOGLE_ACCOUNT_EMAIL || '').trim().toLowerCase(),
+    driveRoot: (process.env.GOOGLE_DRIVE_ROOT || 'B2B').trim(),
+  },
+  // Claude reads the documents the app's own parser does not know (forwarder, customs, freight).
+  anthropicApiKey: (process.env.ANTHROPIC_API_KEY || '').trim(),
+  intakeModel: (process.env.INTAKE_MODEL || 'claude-opus-5-5').trim(),
   jwtSecret: process.env.JWT_SECRET || 'dev-insecure-secret-change-me',
   databaseUrl: process.env.DATABASE_URL || '',
   resendApiKey: process.env.RESEND_API_KEY || '',

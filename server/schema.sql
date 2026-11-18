@@ -284,3 +284,23 @@ ALTER TABLE inbound_lines ADD COLUMN IF NOT EXISTS cbm NUMERIC;         -- volum
 ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS incoterm TEXT;       -- EXW | FOB <port>
 ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS payment_terms TEXT;
 ALTER TABLE intake_documents ADD COLUMN IF NOT EXISTS applied JSONB;        -- { at, by, summary } once applied
+
+-- History import (added later; idempotent). A PAST shipment is a record of goods that arrived
+-- before the app tracked them: it never adds stock, never counts as incoming and is never
+-- promised to a client order.
+ALTER TABLE inbound_shipments ADD COLUMN IF NOT EXISTS historical BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE intake_documents ADD COLUMN IF NOT EXISTS source_id TEXT;       -- gmail:<msg>:<part> | drive:<file>: taken in once
+ALTER TABLE intake_documents ADD COLUMN IF NOT EXISTS historical BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE intake_documents ADD COLUMN IF NOT EXISTS doc_date DATE;        -- the date printed on the document
+CREATE INDEX IF NOT EXISTS idx_intake_documents_source_id ON intake_documents(source_id);
+
+-- One row per history-import run: what was asked for and how far it got.
+CREATE TABLE IF NOT EXISTS import_runs (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,        -- running | done | failed | stopped
+  params JSONB NOT NULL DEFAULT '{}',
+  progress JSONB NOT NULL DEFAULT '{}',
+  started_by TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ
+);
