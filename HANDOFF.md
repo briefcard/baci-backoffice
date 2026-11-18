@@ -371,3 +371,9 @@ Phase 0 + first half of phase 1 of the procurement/tracking plan. Run `cd server
   searches the index. Extracted figures are stored on the document only; nothing is applied to stock,
   costs or ETAs yet. NOT built: reading other document types inside the app (needs an AI key), an
   email connection, and importing the existing Drive folders.
+
+- **Apply a document to its shipment (2026-11-18, branch, NOT merged):** `applyPreview` /
+  `applyDocument` in `intakeDocs.js` (`GET|POST /api/intake/:id/apply`). `inbound_lines` gained
+  unit_cost, currency, made_in, hs_code, cartons, net_kg, gross_kg, cbm; `inbound_shipments` gained
+  incoterm, payment_terms; `intake_documents.applied`. Adding lines and changing quantities are
+  opt-in. The route re-runs `reconcile` and `noteEtaChange`.

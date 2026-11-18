@@ -19,7 +19,7 @@
 import crypto from 'node:crypto';
 import { pool, q } from './db.js';
 import { parseIntakeFile } from './intake.js';
-import { createShipment, getShipment, listShipments } from './inbound.js';
+import { createShipment, getShipment, listShipments, updateShipment } from './inbound.js';
 import { createDocument, normalizeDocType } from './documents.js';
 
 // kind -> [label, weight]. Weight = how specifically that kind of number names ONE shipment.
@@ -142,6 +142,7 @@ const docRow = (r) => ({
   id: r.id, hash: r.hash, filename: r.filename, source: r.source, docType: r.doc_type, status: r.status, shipmentId: r.shipment_id,
   refs: r.refs || [], extracted: r.extracted || null, driveUrl: r.drive_url, sender: r.sender, subject: r.subject,
   receivedAt: iso(r.received_at), createdBy: r.created_by, createdAt: iso(r.created_at), reviewedBy: r.reviewed_by, reviewedAt: iso(r.reviewed_at),
+  applied: r.applied || null,
 });
 
 async function saveDoc(d, isNew) {
@@ -156,8 +157,8 @@ async function saveDoc(d, isNew) {
       [d.id, d.hash, d.filename, d.source, d.docType, d.status, d.shipmentId, JSON.stringify(d.refs), JSON.stringify(d.extracted), d.driveUrl, d.sender, d.subject, d.receivedAt, d.createdBy, d.createdAt]
     );
   } else {
-    await q('UPDATE intake_documents SET status=$2, shipment_id=$3, refs=$4, doc_type=$5, reviewed_by=$6, reviewed_at=$7, drive_url=$8 WHERE id=$1', [
-      d.id, d.status, d.shipmentId, JSON.stringify(d.refs), d.docType, d.reviewedBy, d.reviewedAt, d.driveUrl,
+    await q('UPDATE intake_documents SET status=$2, shipment_id=$3, refs=$4, doc_type=$5, reviewed_by=$6, reviewed_at=$7, drive_url=$8, applied=$9 WHERE id=$1', [
+      d.id, d.status, d.shipmentId, JSON.stringify(d.refs), d.docType, d.reviewedBy, d.reviewedAt, d.driveUrl, d.applied ? JSON.stringify(d.applied) : null,
     ]);
   }
 }
@@ -240,6 +241,7 @@ export async function ingestDocument({ filename, buffer, hash, refs, docType, ex
     createdAt: new Date().toISOString(),
     reviewedBy: null,
     reviewedAt: null,
+    applied: null,
   };
   await saveDoc(doc, true);
   if (doc.shipmentId) await attach(doc, doc.shipmentId, by);
@@ -258,10 +260,17 @@ export async function assignDocument(id, { shipmentId, create }, by) {
       origin: x.origin || null,
       // Same convention as the import button: a packing list means the goods have shipped.
       status: doc.docType === 'packing_list' ? 'in_transit' : 'ordered',
-      invoiceTotal: x.invoiceTotal ?? null,
-      lines: (x.lines || []).map((l) => ({ sku: l.sku, title: l.title, expected: l.expected, variantId: l.variantId })),
+      invoiceTotal: doc.docType === 'packing_list' ? null : x.invoiceTotal ?? null,
+      incoterm: x.incoterm || null,
+      paymentTerms: x.paymentTerms || null,
+      lines: (x.lines || []).map((l) => ({
+        sku: l.sku, title: l.title, expected: l.expected, variantId: l.variantId,
+        unitCost: l.unitPrice, currency: l.currency, madeIn: l.madeIn, hsCode: l.hsCode,
+        cartons: l.cartons, netKg: l.netKg, grossKg: l.grossKg, cbm: l.cbm,
+      })),
       notes: `Created from ${doc.filename}`,
     });
+    doc.applied = { at: new Date().toISOString(), by, summary: { created: true } };
   }
   if (!target) throw new Error('Pick a shipment, or choose to create one');
   Object.assign(doc, { status: 'matched', shipmentId: target.id, reviewedBy: by, reviewedAt: new Date().toISOString() });
@@ -276,4 +285,120 @@ export async function ignoreDocument(id, by) {
   Object.assign(doc, { status: 'ignored', reviewedBy: by, reviewedAt: new Date().toISOString() });
   await saveDoc(doc, false);
   return doc;
+}
+
+// ---- applying a filed document to its shipment ----
+//
+// A filed document's figures do nothing until a person applies them. applyPreview says exactly
+// what would change; applyDocument makes those changes and nothing else.
+//   - line details by SKU: unit price, currency, made-in, tariff code (orders and invoices);
+//     cartons, weights, volume (packing lists)
+//   - header: invoice total, incoterm, payment terms; arrival date, carrier and tracking when a
+//     reader supplied them (forwarder notices)
+//   - optional: add lines the shipment does not have yet; set quantities to the document's
+// Received lines keep their quantities. Quantities and added lines are opt-in because they move
+// what is promised to client orders.
+
+const LINE_FIELDS = [['unitCost', 'unitPrice', 'unit price'], ['currency', 'currency', null], ['madeIn', 'madeIn', 'made-in'], ['hsCode', 'hsCode', 'tariff code'], ['cartons', 'cartons', 'cartons'], ['netKg', 'netKg', null], ['grossKg', 'grossKg', 'weight'], ['cbm', 'cbm', 'volume']];
+const isDate = (v) => typeof v === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(v);
+
+function planApply(doc, ship) {
+  const x = doc.extracted || {};
+  const docLines = Array.isArray(x.lines) ? x.lines : [];
+  const bySku = new Map(ship.lines.map((l) => [String(l.sku).toUpperCase(), l]));
+  const lineChanges = []; // { line, set: {field: value} }
+  const fields = new Set();
+  const missing = [];
+  const qtyDiffs = [];
+  for (const d of docLines) {
+    const line = bySku.get(String(d.sku).toUpperCase());
+    if (!line) {
+      missing.push(d);
+      continue;
+    }
+    const set = {};
+    for (const [field, from, label] of LINE_FIELDS) {
+      if (d[from] != null && d[from] !== line[field]) {
+        set[field] = d[from];
+        if (label) fields.add(label);
+      }
+    }
+    if (Object.keys(set).length) lineChanges.push({ line, set });
+    if (!line.receivedAt && d.expected != null && d.expected !== line.expected) qtyDiffs.push({ sku: line.sku, shipment: line.expected, document: d.expected });
+  }
+  const docSkus = new Set(docLines.map((d) => String(d.sku).toUpperCase()));
+  const notOnDocument = docLines.length ? ship.lines.filter((l) => !docSkus.has(String(l.sku).toUpperCase())).map((l) => l.sku) : [];
+
+  const header = [];
+  const head = (field, label, to) => {
+    if (to != null && to !== '' && to !== ship[field]) header.push({ field, label, from: ship[field] ?? null, to });
+  };
+  // Money and terms come from the supplier's own invoice or order, not from a packing list.
+  if (['invoice', 'commercial_invoice', 'order'].includes(doc.docType)) {
+    head('invoiceTotal', 'Invoice total', x.invoiceTotal);
+    head('incoterm', 'Delivery terms', x.incoterm);
+    head('paymentTerms', 'Payment terms', x.paymentTerms);
+  }
+  if (isDate(x.eta)) head('eta', 'Arrival date', x.eta);
+  head('carrier', 'Carrier', x.carrier);
+  head('tracking', 'Tracking / container', x.tracking || x.container);
+  return { lineChanges, fields: [...fields], missing, qtyDiffs, notOnDocument, header };
+}
+
+// What applying this document would change on its shipment.
+export async function applyPreview(id) {
+  const doc = await getIntakeDoc(id);
+  if (!doc) return null;
+  if (doc.status !== 'matched' || !doc.shipmentId) throw new Error('File the document on a shipment first');
+  const ship = await getShipment(doc.shipmentId);
+  if (!ship) throw new Error('The shipment no longer exists');
+  const plan = planApply(doc, ship);
+  return {
+    documentId: doc.id,
+    shipment: { id: ship.id, reference: ship.reference, origin: ship.origin },
+    lineUpdates: plan.lineChanges.length,
+    fields: plan.fields,
+    missing: plan.missing.map((d) => ({ sku: d.sku, expected: d.expected })),
+    qtyDiffs: plan.qtyDiffs,
+    notOnDocument: plan.notOnDocument,
+    header: plan.header,
+    nothing: !plan.lineChanges.length && !plan.missing.length && !plan.qtyDiffs.length && !plan.header.length,
+    applied: doc.applied,
+  };
+}
+
+// Apply it. Returns { document, before, shipment } so the caller can re-check reservations and
+// note an arrival-date change on the orders that depend on this shipment.
+export async function applyDocument(id, { addMissing = false, setQuantities = false } = {}, by) {
+  const doc = await getIntakeDoc(id);
+  if (!doc) return null;
+  if (doc.status !== 'matched' || !doc.shipmentId) throw new Error('File the document on a shipment first');
+  const before = await getShipment(doc.shipmentId);
+  if (!before) throw new Error('The shipment no longer exists');
+  const plan = planApply(doc, before);
+
+  const lines = before.lines.map((l) => ({ ...l }));
+  for (const { line, set } of plan.lineChanges) Object.assign(lines.find((l) => l.id === line.id), set);
+  if (setQuantities) for (const dq of plan.qtyDiffs) lines.find((l) => l.sku === dq.sku).expected = dq.document;
+  if (addMissing) {
+    for (const d of plan.missing) {
+      const add = { sku: d.sku, title: d.title, expected: d.expected, variantId: d.variantId || null };
+      for (const [field, from] of LINE_FIELDS) if (d[from] != null) add[field] = d[from];
+      lines.push(add);
+    }
+  }
+  const body = { lines, statusNote: `Applied ${doc.filename}` };
+  for (const h of plan.header) body[h.field] = h.to;
+  const shipment = await updateShipment(before.id, by, body);
+
+  const summary = {
+    lineUpdates: plan.lineChanges.length,
+    fields: plan.fields,
+    added: addMissing ? plan.missing.length : 0,
+    quantitiesSet: setQuantities ? plan.qtyDiffs.length : 0,
+    header: plan.header.map((h) => h.label),
+  };
+  doc.applied = { at: new Date().toISOString(), by, summary };
+  await saveDoc(doc, false);
+  return { document: doc, before, shipment, summary };
 }

@@ -15,7 +15,7 @@ import {
 } from './orderbook.js';
 import { refreshDeposits, balancePreview, prepareBalance } from './deposits.js';
 import {
-  REF_KINDS, listIntake, ingestDocument, assignDocument, ignoreDocument, listRefs, addRef, removeRef, matchRefs,
+  REF_KINDS, listIntake, ingestDocument, assignDocument, ignoreDocument, listRefs, addRef, removeRef, matchRefs, applyPreview, applyDocument,
 } from './intakeDocs.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
@@ -318,6 +318,29 @@ app.post('/api/intake/:id/assign', { preHandler: requireInboundAccess }, async (
       await reconcile();
     }
     return { ok: true, ...res };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+// What applying a filed document would change on its shipment, then the confirmed change.
+app.get('/api/intake/:id/apply', { preHandler: requireInboundAccess }, async (req, reply) => {
+  try {
+    const preview = await applyPreview(req.params.id);
+    if (!preview) return reply.code(404).send({ error: 'not found' });
+    return { preview };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+app.post('/api/intake/:id/apply', { preHandler: requireInboundAccess }, async (req, reply) => {
+  try {
+    const res = await applyDocument(req.params.id, { addMissing: req.body?.addMissing === true, setQuantities: req.body?.setQuantities === true }, req.rep.email);
+    if (!res) return reply.code(404).send({ error: 'not found' });
+    await refreshRollup();
+    await noteEtaChange(res.before, res.shipment); // orders on this shipment learn a new arrival date
+    await reconcile(); // changed quantities may free or release reserved units
+    return { ok: true, document: res.document, shipment: res.shipment, summary: res.summary };
   } catch (err) {
     return reply.code(400).send({ error: String(err?.message || err) });
   }
