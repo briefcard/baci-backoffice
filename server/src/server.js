@@ -14,6 +14,9 @@ import {
   listOrders, getOrder, reconcile, reservedUnitsByShipmentLine, previewAvailability, listEvents, reviewEvent, noteEtaChange,
 } from './orderbook.js';
 import { refreshDeposits, balancePreview, prepareBalance } from './deposits.js';
+import {
+  REF_KINDS, listIntake, ingestDocument, assignDocument, ignoreDocument, listRefs, addRef, removeRef, matchRefs,
+} from './intakeDocs.js';
 import { searchCustomers, upsertCustomer } from './customers.js';
 import { listCheckoutQueue } from './checkout.js';
 import { createPendingRow, savePending, listPending, getPending, markHandled } from './pending.js';
@@ -172,6 +175,7 @@ app.get('/api/inbound', { preHandler: requireInboundAccess }, async () => {
   const shipments = await listShipments();
   const docsByShip = await listDocumentsForShipments(shipments.map((s) => s.id));
   const reserved = await reservedUnitsByShipmentLine();
+  const refs = await listRefs(shipments.map((x) => x.id));
   return {
     // Attach each shipment's document checklist so the board can flag missing customs docs
     // and the editor can render the checklist without a second round-trip per card.
@@ -179,6 +183,7 @@ app.get('/api/inbound', { preHandler: requireInboundAccess }, async () => {
     shipments: shipments.map((s) => ({
       ...s,
       lines: s.lines.map((l) => ({ ...l, reserved: reserved.get(l.id) || 0 })),
+      refs: refs.filter((r) => r.shipmentId === s.id),
       docs: checklistFor(docsByShip.get(s.id) || []),
     })),
     statuses: SHIPMENT_STATUSES,
@@ -267,6 +272,73 @@ app.post('/api/inbound/:id/resync', { preHandler: requireAuth }, async (req, rep
   await reconcile();
   return { ok: true, ...res };
 });
+
+// ---- Document intake + the reference index ----
+// Open to admin sessions and to the agent token, like the rest of the inbound surface.
+
+// Documents inbox: newest first, with the shipments each unclear document could belong to.
+app.get('/api/intake', { preHandler: requireInboundAccess }, async () => ({
+  documents: await listIntake(),
+  refKinds: Object.fromEntries(Object.entries(REF_KINDS).map(([k, v]) => [k, v[0]])),
+}));
+
+// Take in a document. Multipart: the file itself (plus optional source / driveUrl / sender /
+// subject fields) and the app reads it. JSON: what a reader already extracted, for document
+// types the app does not parse: { filename, hash, docType, refs: [{kind,value}], extracted, ... }.
+app.post('/api/intake', { preHandler: requireInboundAccess }, async (req, reply) => {
+  try {
+    let input;
+    if (req.isMultipart()) {
+      const file = await req.file();
+      if (!file) return reply.code(400).send({ error: 'no file' });
+      const buffer = await file.toBuffer();
+      const f = Object.fromEntries(Object.entries(file.fields || {}).filter(([, v]) => v?.type === 'field').map(([k, v]) => [k, v.value]));
+      input = { filename: file.filename, buffer, source: f.source, driveUrl: f.driveUrl, sender: f.sender, subject: f.subject, receivedAt: f.receivedAt || null };
+    } else {
+      const b = req.body || {};
+      if (!b.filename) return reply.code(400).send({ error: 'filename required' });
+      input = { filename: b.filename, hash: b.hash, refs: b.refs, docType: b.docType, extracted: b.extracted, source: b.source, driveUrl: b.driveUrl, sender: b.sender, subject: b.subject, receivedAt: b.receivedAt || null };
+    }
+    if (req.rep.isAgent && !input.source) input.source = 'email';
+    const res = await ingestDocument(input, req.rep.email);
+    return { ok: true, ...res };
+  } catch (err) {
+    req.log.error({ err }, 'intake failed');
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+// A person settles an unclear document: { shipmentId } or { create: true }.
+app.post('/api/intake/:id/assign', { preHandler: requireInboundAccess }, async (req, reply) => {
+  try {
+    const res = await assignDocument(req.params.id, req.body || {}, req.rep.email);
+    if (!res) return reply.code(404).send({ error: 'not found' });
+    if (res.created) {
+      await refreshRollup();
+      await reconcile();
+    }
+    return { ok: true, ...res };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+
+app.post('/api/intake/:id/ignore', { preHandler: requireInboundAccess }, async (req, reply) => {
+  const doc = await ignoreDocument(req.params.id, req.rep.email);
+  if (!doc) return reply.code(404).send({ error: 'not found' });
+  return { ok: true, document: doc };
+});
+
+// A shipment's reference numbers: add one by hand, or remove a wrong one.
+app.post('/api/inbound/:id/refs', { preHandler: requireInboundAccess }, async (req, reply) => {
+  if (!(await getShipment(req.params.id))) return reply.code(404).send({ error: 'not found' });
+  try {
+    return { ok: true, ref: await addRef(req.params.id, req.body || {}, req.rep.email) };
+  } catch (err) {
+    return reply.code(400).send({ error: String(err?.message || err) });
+  }
+});
+app.post('/api/inbound/:id/refs/:refId/remove', { preHandler: requireInboundAccess }, async (req) => ({ ok: await removeRef(req.params.refId) }));
 
 // ---- Shipment documents (customs/freight doc set; files live in Google Drive) ----
 
@@ -394,6 +466,13 @@ app.get('/api/agent/match', { preHandler: requireInboundAccess }, async (req, re
   const query = String(req.query?.q || '').trim();
   if (!query) return reply.code(400).send({ error: 'q required' });
   const matches = await findShipmentMatches(query);
+  // Also search the reference index: any of a shipment's numbers (packing list, forwarder
+  // file, container, customs entry...) finds it, not just the one in its reference field.
+  for (const c of await matchRefs([{ kind: 'other', value: query }])) {
+    if (!matches.some((m) => m.shipment.id === c.shipment.id)) {
+      matches.push({ shipment: c.shipment, matchedOn: c.matchedOn.map((x) => `${x.kind}: ${x.value}`) });
+    }
+  }
   const docsByShip = await listDocumentsForShipments(matches.map((m) => m.shipment.id));
   return {
     query,

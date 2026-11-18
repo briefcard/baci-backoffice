@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { PrintDoc, RFQDoc } from './PrintDocs.jsx';
+import { DocumentsInbox, ShipmentRefs } from './DocumentsInbox.jsx';
 
 // Back-office inbound shipment tracker (ADMIN ONLY — reps never see this tab).
 // Lanes: Ordered → In transit → Arrived → Receiving → Received. Each shipment carries origin,
@@ -34,7 +35,7 @@ const daysLate = (eta) => {
 
 export function InboundView({ snapshot }) {
   const [ships, setShips] = useState(null);
-  const [mode, setMode] = useState('board'); // board | items
+  const [mode, setMode] = useState('board'); // board | items | docs
   const [editing, setEditing] = useState(null); // shipment object | 'new' | {prefill}
   const [receiving, setReceiving] = useState(null); // shipment object
   const [quickAdd, setQuickAdd] = useState(null); // item row from ItemsView
@@ -145,9 +146,14 @@ export function InboundView({ snapshot }) {
         <button className={mode === 'items' ? 'tab active' : 'tab'} onClick={() => setMode('items')}>
           Items on the way
         </button>
+        <button className={mode === 'docs' ? 'tab active' : 'tab'} onClick={() => setMode('docs')}>
+          Documents
+        </button>
       </div>
 
-      {mode === 'items' ? (
+      {mode === 'docs' ? (
+        <DocumentsInbox ships={ships} onChanged={load} />
+      ) : mode === 'items' ? (
         <ItemsView
           ships={ships}
           snapshot={snapshot}
@@ -893,6 +899,8 @@ function ShipmentEditor({ shipment, prefill, skuIndex, onClose, onSaved }) {
             </div>
           )}
           {rematchMsg && <div className="muted small">{rematchMsg}</div>}
+
+          {shipment?.id && <ShipmentRefs shipment={shipment} />}
 
           {shipment?.id && <DocumentChecklist shipmentId={shipment.id} />}
 

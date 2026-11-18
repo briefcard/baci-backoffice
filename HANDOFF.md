@@ -360,3 +360,14 @@ Phase 0 + first half of phase 1 of the procurement/tracking plan. Run `cd server
   eta_changed; `needs_review` flags releases and later-or-removed ETAs (`noteEtaChange` on shipment
   update, `reconcile`). `POST /api/orders/:id/events/:eventId/review` marks one handled. Internal staff
   only: there is no client-facing view.
+
+- **Document intake (2026-11-18, branch, NOT merged):** `server/src/intakeDocs.js` — `shipment_refs`
+  (reference index: every number a shipment is known by, by kind; `refKey` normalises spelling;
+  `matchRefs` scores by how specific the kind is) and `intake_documents` (inbox). `POST /api/intake`
+  takes a file (multipart; `intake.js` reads Baci orders / invoices / packing lists, now with prices,
+  made-in, HS code, cartons, weights, CBM and arithmetic checks) or JSON from a reader (agent token
+  allowed). One clear match files itself and adds the documents other numbers to the shipment;
+  otherwise it waits in Inbound > Documents (`DocumentsInbox.jsx`). `GET /api/agent/match` also
+  searches the index. Extracted figures are stored on the document only; nothing is applied to stock,
+  costs or ETAs yet. NOT built: reading other document types inside the app (needs an AI key), an
+  email connection, and importing the existing Drive folders.

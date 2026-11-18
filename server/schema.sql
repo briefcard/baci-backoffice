@@ -229,3 +229,44 @@ CREATE TABLE IF NOT EXISTS order_events (
 );
 CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_events_review ON order_events(needs_review) WHERE needs_review;
+
+-- Document intake (added later; idempotent).
+-- The reference index: every number a shipment is known by, labelled by kind (Italy order,
+-- packing list, supplier invoice, forwarder file, container, customs entry, ...). `key` is the
+-- normalised spelling used for matching. The same key may sit on several shipments (one Italy
+-- order split across shipments), so there is no uniqueness across shipments.
+CREATE TABLE IF NOT EXISTS shipment_refs (
+  id TEXT PRIMARY KEY,
+  shipment_id TEXT NOT NULL REFERENCES inbound_shipments(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  value TEXT NOT NULL,
+  key TEXT NOT NULL,
+  doc_id TEXT,                 -- intake_documents.id that supplied it, when one did
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (shipment_id, kind, key)
+);
+CREATE INDEX IF NOT EXISTS idx_shipment_refs_key ON shipment_refs(key);
+
+-- Every document that came in, what was read from it, and the shipment it matched.
+CREATE TABLE IF NOT EXISTS intake_documents (
+  id TEXT PRIMARY KEY,
+  hash TEXT,                   -- sha256 of the file: the same file is taken in once
+  filename TEXT NOT NULL,
+  source TEXT NOT NULL,        -- email | whatsapp | upload | drive
+  doc_type TEXT,               -- order | invoice | packing_list | bill_of_lading | ...
+  status TEXT NOT NULL,        -- matched | needs_review | unmatched | ignored
+  shipment_id TEXT,
+  refs JSONB NOT NULL DEFAULT '[]',   -- [{ kind, value }]
+  extracted JSONB,             -- what was read: lines, prices, origin, totals, checks
+  drive_url TEXT,
+  sender TEXT,
+  subject TEXT,
+  received_at TIMESTAMPTZ,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_intake_documents_hash ON intake_documents(hash);
+CREATE INDEX IF NOT EXISTS idx_intake_documents_status ON intake_documents(status);
